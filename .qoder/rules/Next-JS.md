@@ -1,7 +1,7 @@
 ---
 trigger: always_on
 ---
-你是一名精通 JavaScript、React、Node.js、Next.js App Router、Zustand、Shadcn UI、Radix UI、Tailwind 和 Stylus 的专家。
+你是一名精通 JavaScript、React、Node.js、Next.js App Router、Zustand、Ant Design (antd)、Tailwind 和 CSS Modules 的专家。
 
 Code Style and Structure（代码风格与结构）
 - 编写简洁、技术化的 JavaScript 代码，遵循 Standard.js 规则。
@@ -55,41 +55,51 @@ State Management（状态管理）
 - 在 prop drilling 复杂时使用 context 作为中间状态共享。
 
 UI and Styling（UI 与样式）
-- 使用 Shadcn UI 与 Radix UI 作为组件基础。
+- 使用 Ant Design (antd) 作为 UI 组件库基础。
 - 使用 Tailwind CSS 实现响应式设计；移动端优先。
-- 使用 Stylus 作为 CSS Modules 进行组件级样式：
-  - 每个需要自定义样式的组件创建一个 .module.styl 文件。
-  - Stylus 文件中的类名使用 camelCase。
-  - 使用 Stylus 的特性，如嵌套、变量与 mixins，提高样式效率。
-- 在 Stylus 模块内使用一致的 CSS 类命名（例如 BEM）。
+- 使用 CSS Modules 进行组件级样式：
+  - 每个需要自定义样式的组件创建一个 .module.css 文件。
+  - CSS 文件中的类名使用 camelCase。
+  - 使用 CSS 变量管理主题色、间距等可复用值。
+- 在 CSS 模块内使用一致的 CSS 类命名（例如 BEM）。
 - 使用 Tailwind 提供的工具类以快速构建 UI。
-- Tailwind 与 Stylus 结合形成混合方案：
+- Tailwind 与 CSS Modules 结合形成混合方案：
   - 常用工具类与布局使用 Tailwind。
-  - 复杂、组件专属样式使用 Stylus 模块。
+  - 复杂、组件专属样式使用 CSS Modules。
   - **永远不要使用 @apply 指令**
+- Ant Design 主题定制：
+  - 使用 ConfigProvider 进行全局主题配置。
+  - 通过 CSS 变量覆盖默认样式。
+  - 合理使用 antd 内置组件，避免重复造轮子。
 
 File Structure for Styling（样式文件结构）
-- 将 Stylus 模块文件放在对应组件旁。
+- 将 CSS 模块文件放在对应组件旁。
 - 示例结构：
   components/
     Button/
       Button.js
-      Button.module.styl
+      Button.module.css
     Card/
       Card.js
-      Card.module.styl
+      Card.module.css
 
-Stylus Best Practices（Stylus 最佳实践）
-- 使用变量管理颜色、字体与其他重复值。
-- 为常用样式模式创建 mixins。
-- 使用 Stylus 的父选择器 (&) 进行嵌套与伪类。
+CSS Modules Best Practices（CSS Modules 最佳实践）
+- 使用 CSS 变量（:root）管理颜色、字体与其他重复值。
+- 类名使用 camelCase 命名规范。
+- 使用嵌套选择器时通过 & 进行伪类和伪元素。
 - 通过避免深层嵌套来保持低特异性。
+- 合理使用 CSS Grid 和 Flexbox 进行布局。
+- 使用 @media 查询实现响应式设计。
 
 Integration with React（与 React 集成）
-- 在 React 组件中引入 Stylus 模块：
-  import styles from './ComponentName.module.styl'
+- 在 React 组件中引入 CSS 模块：
+  import styles from './ComponentName.module.css'
 - 通过 styles 对象应用类名：
   <div className={styles.containerClass}>
+- 引入 Ant Design 组件：
+  import { Button, Form, Input } from 'antd'
+- 组合使用 antd 组件和自定义样式：
+  <Button className={styles.customButton}>提交</Button>
 
 Performance Optimization（性能优化）
 - 尽量减少使用 'use client'、'useEffect' 与 'useState'；优先采用 React Server Components (RSC)。
@@ -140,8 +150,9 @@ Key Conventions（关键规范）
   - 偏好服务器组件与 Next.js SSR。
   - 仅用于小型组件中访问 Web API。
   - 避免用于数据获取或状态管理。
-- 在 Tailwind 与 Stylus 间保持平衡：
+- 在 Tailwind、Ant Design 与 CSS Modules 间保持平衡：
+  - Ant Design 用于标准 UI 组件（按钮、表单、表格等）。
   - Tailwind 用于快速开发与一致的间距/尺寸。
-  - Stylus 用于复杂、独特的组件样式。
+  - CSS Modules 用于复杂、独特的组件样式。
 
 遵循 Next.js 文档中关于数据获取、渲染与路由的规范。

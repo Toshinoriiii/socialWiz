@@ -43,7 +43,7 @@ export default function LoginPage() {
       localStorage.setItem('token', data.token)
       
       // 跳转到首页
-      router.push('/')
+      router.push('/home')
     } catch (error) {
       setErrors({ general: '网络错误，请检查网络连接' })
     } finally {

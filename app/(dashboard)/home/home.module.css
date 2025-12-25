@@ -1,10 +1,14 @@
-﻿.dashboard {
-  max-width: 1400px;
-  margin: 0 auto;
+﻿.home {
   display: grid;
   grid-template-columns: 1fr 320px;
   gap: 2rem;
-  padding: 2rem;
+  min-height: 100vh;
+}
+
+.mainContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
 }
 
 /* 数据概览区域 */
@@ -385,7 +389,7 @@
 
 /* 响应式 */
 @media (max-width: 1024px) {
-  .dashboard {
+  .home {
     grid-template-columns: 1fr;
   }
 
@@ -403,7 +407,7 @@
 }
 
 @media (max-width: 768px) {
-  .dashboard {
+  .home {
     padding: 1rem;
   }
 
