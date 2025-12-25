@@ -1,0 +1,140 @@
+﻿.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: 1px solid transparent;
+  outline: none;
+}
+
+.button:focus-visible {
+  ring: 2px;
+  ring-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sizes */
+.button.sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.button.md {
+  padding: 0.625rem 1.25rem;
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.button.lg {
+  padding: 0.75rem 1.5rem;
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+/* Variants */
+.button.primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.button.primary:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.button.primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.button.secondary {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+}
+
+.button.secondary:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4);
+}
+
+.button.secondary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.button.outline {
+  background: transparent;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.button.outline:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.button.outline:active:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.button.ghost {
+  background: transparent;
+  color: #6b7280;
+}
+
+.button.ghost:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.button.ghost:active:not(:disabled) {
+  background: #e5e7eb;
+}
+
+.button.danger {
+  background: #ef4444;
+  color: white;
+}
+
+.button.danger:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.button.danger:active:not(:disabled) {
+  transform: translateY(0);
+  background: #b91c1c;
+}
+
+.button.fullWidth {
+  width: 100%;
+}
+
+.button.loading {
+  cursor: wait;
+}
+
+.spinner {
+  display: inline-flex;
+  align-items: center;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+}

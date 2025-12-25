@@ -1,0 +1,134 @@
+﻿.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.wrapper.fullWidth {
+  width: 100%;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.label .required {
+  color: #ef4444;
+  margin-left: 0.25rem;
+}
+
+.inputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  outline: none;
+  transition: all 0.2s ease;
+  color: #1f2937;
+  background: white;
+}
+
+.input::placeholder {
+  color: #9ca3af;
+}
+
+.input:focus {
+  border-color: #667eea;
+  ring: 2px;
+  ring-color: rgba(102, 126, 234, 0.2);
+}
+
+.input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.input.error {
+  border-color: #ef4444;
+}
+
+.input.error:focus {
+  ring-color: rgba(239, 68, 68, 0.2);
+}
+
+/* Sizes */
+.input.sm {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.input.md {
+  padding: 0.625rem 1rem;
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.input.lg {
+  padding: 0.75rem 1.25rem;
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+/* With icons */
+.input.hasPrefix.sm {
+  padding-left: 2.5rem;
+}
+
+.input.hasPrefix.md {
+  padding-left: 2.75rem;
+}
+
+.input.hasPrefix.lg {
+  padding-left: 3rem;
+}
+
+.input.hasSuffix.sm {
+  padding-right: 2.5rem;
+}
+
+.input.hasSuffix.md {
+  padding-right: 2.75rem;
+}
+
+.input.hasSuffix.lg {
+  padding-right: 3rem;
+}
+
+.prefixIcon,
+.suffixIcon {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+.prefixIcon {
+  left: 0.75rem;
+}
+
+.suffixIcon {
+  right: 0.75rem;
+}
+
+.errorText {
+  font-size: 0.875rem;
+  color: #ef4444;
+  margin: 0;
+}
+
+.helpText {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0;
+}

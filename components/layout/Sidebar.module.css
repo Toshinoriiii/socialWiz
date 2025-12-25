@@ -1,0 +1,76 @@
+﻿.sidebar {
+  position: fixed;
+  left: 0;
+  top: 4rem;
+  bottom: 0;
+  width: 16rem;
+  background: white;
+  border-right: 1px solid #e5e7eb;
+  padding: 1.5rem 0;
+  transition: width 0.3s ease;
+  z-index: 90;
+}
+
+.sidebar.collapsed {
+  width: 4.5rem;
+}
+
+.sidebar.collapsed .label {
+  display: none;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0 1rem;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  color: #6b7280;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.menuItem:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.menuItem.active {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  color: #667eea;
+  font-weight: 600;
+}
+
+.menuItem.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 3px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 0 2px 2px 0;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

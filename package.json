@@ -1,0 +1,69 @@
+{
+  "name": "socialwiz",
+  "version": "1.0.0",
+  "description": "多智能体社交媒体统一管理平台",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:seed": "ts-node scripts/seed.ts",
+    "deploy": "bash scripts/deploy.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Toshinoriiii/socialWiz.git"
+  },
+  "keywords": [
+    "nextjs",
+    "social-media",
+    "ai",
+    "multi-agent"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Toshinoriiii/socialWiz/issues"
+  },
+  "homepage": "https://github.com/Toshinoriiii/socialWiz#readme",
+  "dependencies": {
+    "@ant-design/icons": "^6.1.0",
+    "@hookform/resolvers": "^5.2.2",
+    "@prisma/client": "^7.2.0",
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^25.0.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.23",
+    "bcryptjs": "^3.0.3",
+    "bull": "^4.16.5",
+    "echarts": "^6.0.0",
+    "echarts-for-react": "^3.0.5",
+    "ioredis": "^5.8.2",
+    "jsonwebtoken": "^9.0.3",
+    "next": "^16.1.1",
+    "nuqs": "^2.8.6",
+    "postcss": "^8.5.6",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-hook-form": "^7.69.0",
+    "swiper": "^12.0.3",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "zod": "^4.2.1",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/bull": "^3.15.9",
+    "@types/jsonwebtoken": "^9.0.10",
+    "prisma": "^7.2.0",
+    "stylus": "^0.64.0"
+  }
+}
