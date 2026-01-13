@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react'
 import { ContentEditor } from '@/components/dashboard/ContentEditor'
 import { PlatformPreview } from '@/components/dashboard/PlatformPreview'
 import { AIChatPanel } from '@/components/dashboard/AIChatPanel'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
+import { Button } from '@/components/ui/Button'
 import styles from './publish.module.css'
 
 // Mock 平台数据
