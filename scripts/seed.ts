@@ -12,7 +12,21 @@ async function main() {
   try {
     console.log('开始填充种子数据...')
 
-    // 1. 创建测试用户
+    // 1. 创建管理员账号
+    const adminHashedPassword = await bcrypt.hash('admin123', 10)
+    const admin = await prisma.user.upsert({
+      where: { email: 'admin@admin.com' },
+      update: {},
+      create: {
+        email: 'admin@admin.com',
+        password: adminHashedPassword,
+        name: '管理员',
+        avatar: null
+      }
+    })
+    console.log('✓ 创建管理员账号:', admin.email)
+
+    // 2. 创建测试用户
     const hashedPassword = await bcrypt.hash('Test@123456', 10)
     const user = await prisma.user.upsert({
       where: { email: 'test@socialwiz.com' },
@@ -26,7 +40,7 @@ async function main() {
     })
     console.log('✓ 创建测试用户:', user.email)
 
-    // 2. 创建平台账号
+    // 3. 创建平台账号
     const platforms: Platform[] = ['WECHAT', 'WEIBO', 'DOUYIN', 'XIAOHONGSHU']
     
     for (const platform of platforms) {
@@ -46,13 +60,13 @@ async function main() {
           platformUsername: `测试${platform}账号`,
           accessToken: 'test_access_token',
           refreshToken: 'test_refresh_token',
-          expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90天后过期
+          tokenExpiry: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90天后过期
         }
       })
       console.log(`✓ 创建${platform}平台账号`)
     }
 
-    // 3. 创建示例内容
+    // 4. 创建示例内容
     const platformAccounts = await prisma.platformAccount.findMany({
       where: { userId: user.id }
     })
@@ -93,9 +107,13 @@ async function main() {
     }
 
     console.log('\n✓ 种子数据填充完成!')
-    console.log('\n测试账号信息:')
-    console.log('  邮箱: test@socialwiz.com')
-    console.log('  密码: Test@123456')
+    console.log('\n账号信息:')
+    console.log('  管理员账号:')
+    console.log('    邮箱: admin@admin.com')
+    console.log('    密码: admin123')
+    console.log('  测试账号:')
+    console.log('    邮箱: test@socialwiz.com')
+    console.log('    密码: Test@123456')
   } catch (error) {
     console.error('填充种子数据失败:', error)
     process.exit(1)

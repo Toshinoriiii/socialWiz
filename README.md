@@ -84,6 +84,8 @@ pnpm dev
 
 **详细指南**: 查看 [快速开始文档](docs/GETTING_STARTED.md)
 
+**微博平台接入**: 查看 [微博本地开发配置指南](docs/WEIBO_LOCAL_SETUP.md)（包含内网穿透配置）
+
 ## 📁 项目结构
 
 ```

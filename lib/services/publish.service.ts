@@ -1,5 +1,10 @@
 import { prisma } from '@/lib/db/prisma'
 import type { PublishStatus } from '@prisma/client'
+import { Platform } from '@/types/platform.types'
+import { WeiboAdapter } from '@/lib/platforms/weibo/weibo-adapter'
+import type { PublishContent, PublishResult } from '@/lib/platforms/base/types'
+import { isTokenExpired, calculateTokenExpiry } from '@/lib/platforms/weibo/weibo-utils'
+import { getPlatformConfig } from '@/config/platform.config'
 
 export interface PublishContentInput {
   contentId: string
@@ -54,8 +59,7 @@ export class PublishService {
         contentPlatform = await prisma.contentPlatform.update({
           where: { id: contentPlatform.id },
           data: {
-            publishStatus: scheduledAt ? 'PENDING' : 'PUBLISHING',
-            scheduledAt
+            publishStatus: 'PENDING'
           }
         })
       } else {
@@ -64,14 +68,13 @@ export class PublishService {
           data: {
             contentId,
             platformAccountId: platformId,
-            publishStatus: scheduledAt ? 'PENDING' : 'PUBLISHING',
-            scheduledAt
+            publishStatus: 'PENDING'
           }
         })
       }
 
       // 如果不是定时发布，立即执行发布
-      if (!scheduledAt) {
+      if (!scheduledAt && contentPlatform) {
         try {
           await this.executePublish(contentPlatform.id, content, platformAccount)
           results.push({ platformId, status: 'SUCCESS' })
@@ -105,36 +108,129 @@ export class PublishService {
     content: any,
     platformAccount: any
   ) {
-    // 这里是示例，实际需要根据不同平台调用对应的API
-    // 可以集成到 lib/integrations 中的平台服务
+    // 检查 Token 是否过期
+    if (isTokenExpired(platformAccount.tokenExpiry)) {
+      // 如果有 refresh_token，尝试刷新（微博 Web 应用不支持，但保留逻辑）
+      if (platformAccount.refreshToken) {
+        try {
+          const weiboConfig = getPlatformConfig(Platform.WEIBO)
+          const adapter = new WeiboAdapter({
+            appKey: process.env.WEIBO_APP_KEY || '',
+            appSecret: process.env.WEIBO_APP_SECRET || '',
+            redirectUri: process.env.WEIBO_REDIRECT_URI || ''
+          })
 
-    console.log(`正在发布到 ${platformAccount.platform}...`)
-    console.log('内容:', content.title, content.content)
+          const newTokenInfo = await adapter.refreshToken(platformAccount.refreshToken)
+          const tokenExpiry = calculateTokenExpiry(newTokenInfo.expiresIn)
 
-    // 模拟发布过程
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+          // 更新 token
+          await prisma.platformAccount.update({
+            where: { id: platformAccount.id },
+            data: {
+              accessToken: newTokenInfo.accessToken,
+              refreshToken: newTokenInfo.refreshToken || platformAccount.refreshToken,
+              tokenExpiry,
+              isConnected: true
+            }
+          })
+
+          // 更新 platformAccount 对象
+          platformAccount.accessToken = newTokenInfo.accessToken
+          platformAccount.tokenExpiry = tokenExpiry
+        } catch (refreshError) {
+          // 刷新失败，标记账号需要重新授权
+          await prisma.platformAccount.update({
+            where: { id: platformAccount.id },
+            data: { isConnected: false }
+          })
+
+          await prisma.contentPlatform.update({
+            where: { id: contentPlatformId },
+            data: {
+              publishStatus: 'FAILED',
+              errorMessage: '授权已过期，请重新连接账号'
+            }
+          })
+
+          throw new Error('授权已过期，请重新连接账号')
+        }
+      } else {
+        // 没有 refresh_token，标记账号需要重新授权
+        await prisma.platformAccount.update({
+          where: { id: platformAccount.id },
+          data: { isConnected: false }
+        })
+
+        await prisma.contentPlatform.update({
+          where: { id: contentPlatformId },
+          data: {
+            publishStatus: 'FAILED',
+            errorMessage: '授权已过期，请重新连接账号'
+          }
+        })
+
+        throw new Error('授权已过期，请重新连接账号')
+      }
+    }
+
+    // 根据平台类型选择适配器
+    let publishResult: PublishResult
+
+    if (platformAccount.platform === Platform.WEIBO) {
+      // 创建微博适配器
+      const weiboConfig = getPlatformConfig(Platform.WEIBO)
+      const adapter = new WeiboAdapter({
+        appKey: process.env.WEIBO_APP_KEY || '',
+        appSecret: process.env.WEIBO_APP_SECRET || '',
+        redirectUri: process.env.WEIBO_REDIRECT_URI || ''
+      })
+
+      // 准备发布内容
+      const publishContent: PublishContent = {
+        text: content.content || content.title || ''
+      }
+
+      // 调用适配器发布
+      publishResult = await adapter.publish(platformAccount.accessToken, publishContent)
+    } else {
+      // 其他平台暂不支持
+      throw new Error(`平台 ${platformAccount.platform} 暂不支持`)
+    }
 
     // 更新发布状态
-    await prisma.contentPlatform.update({
-      where: { id: contentPlatformId },
-      data: {
-        publishStatus: 'SUCCESS',
-        publishedAt: new Date(),
-        platformPostId: `${platformAccount.platform}_${Date.now()}`
-      }
-    })
+    if (publishResult.success) {
+      const updatedContentPlatform = await prisma.contentPlatform.update({
+        where: { id: contentPlatformId },
+        data: {
+          publishStatus: 'SUCCESS',
+          platformContentId: publishResult.platformPostId,
+          publishedUrl: publishResult.publishedUrl
+        }
+      })
 
-    // 创建分析记录
-    await prisma.analytics.create({
-      data: {
-        contentId: content.id,
-        platformAccountId: platformAccount.id,
-        views: 0,
-        likes: 0,
-        shares: 0,
-        comments: 0
-      }
-    })
+      // 创建分析记录
+      await prisma.analytics.create({
+        data: {
+          contentPlatformId: updatedContentPlatform.id,
+          platformAccountId: platformAccount.id,
+          date: new Date(),
+          views: 0,
+          likes: 0,
+          shares: 0,
+          comments: 0
+        }
+      })
+    } else {
+      await prisma.contentPlatform.update({
+        where: { id: contentPlatformId },
+        data: {
+          publishStatus: 'FAILED',
+          errorMessage: publishResult.error || '发布失败'
+        }
+      })
+
+      throw new Error(publishResult.error || '发布失败')
+    }
   }
 
   /**
@@ -144,8 +240,8 @@ export class PublishService {
     return await prisma.contentPlatform.update({
       where: { id: contentPlatformId },
       data: {
-        publishStatus: 'CANCELLED',
-        scheduledAt: null
+        publishStatus: 'FAILED',
+        errorMessage: '已取消定时发布'
       }
     })
   }
@@ -186,10 +282,10 @@ export class PublishService {
       throw new Error('只能重试失败的发布')
     }
 
-    // 更新状态为发布中
+    // 更新状态为待发布
     await prisma.contentPlatform.update({
       where: { id: contentPlatformId },
-      data: { publishStatus: 'PUBLISHING' }
+      data: { publishStatus: 'PENDING' }
     })
 
     try {

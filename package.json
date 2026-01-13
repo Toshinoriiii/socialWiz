@@ -14,6 +14,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "ts-node scripts/seed.ts",
+    "db:view": "ts-node scripts/view-data.ts",
     "deploy": "bash scripts/deploy.sh"
   },
   "repository": {

@@ -1,0 +1,314 @@
+openapi: 3.0.0
+info:
+  title: Weibo Platform Integration API
+  description: |
+    微博平台集成API接口定义
+    基于微博开放平台 OAuth 2.0 API
+  version: 1.0.0
+
+paths:
+  /api/platforms/weibo/auth:
+    get:
+      summary: 获取微博OAuth授权URL
+      description: |
+        生成微博OAuth授权URL，用户跳转到此URL完成授权
+        生成state参数用于CSRF防护，保存到Redis
+      operationId: getWeiboAuthUrl
+      tags:
+        - Weibo Authentication
+      responses:
+        '200':
+          description: 授权URL和state参数
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - authUrl
+                  - state
+                properties:
+                  authUrl:
+                    type: string
+                    format: uri
+                    description: 微博OAuth授权URL
+                    example: "https://api.weibo.com/oauth2/authorize?client_id=xxx&response_type=code&redirect_uri=xxx&state=xxx"
+                  state:
+                    type: string
+                    description: CSRF防护参数，需要保存到session/Redis
+                    example: "random-state-string-12345"
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/platforms/weibo/auth/callback:
+    get:
+      summary: 微博OAuth回调处理
+      description: |
+        处理微博OAuth回调，验证state参数，交换授权码获取token
+        获取用户信息，保存到PlatformAccount
+      operationId: handleWeiboCallback
+      tags:
+        - Weibo Authentication
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 微博返回的授权码
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF防护参数，需要与请求时保存的state匹配
+      responses:
+        '200':
+          description: 授权成功，重定向到设置页面
+          headers:
+            Location:
+              description: 重定向到设置页面
+              schema:
+                type: string
+                example: "/dashboard/settings?platform=weibo&status=connected"
+        '400':
+          description: 授权失败（state不匹配、code无效等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/platforms/weibo/{platformAccountId}/publish:
+    post:
+      summary: 发布内容到微博
+      description: |
+        发布内容到指定的微博账号
+        内容会自动验证是否符合微博限制
+        支持纯文字、文字+图片、文字+视频
+      operationId: publishToWeibo
+      tags:
+        - Weibo Publishing
+      parameters:
+        - name: platformAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 平台账号ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishContentRequest'
+      responses:
+        '200':
+          description: 发布成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishResult'
+        '400':
+          description: 请求错误（内容不符合要求、token过期等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未授权（需要重新连接账号）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 频率限制（超出API调用频率）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/platforms/weibo/{platformAccountId}/disconnect:
+    post:
+      summary: 断开微博账号连接
+      description: |
+        断开微博账号连接，清除token信息
+        可选：调用微博API撤销授权
+      operationId: disconnectWeibo
+      tags:
+        - Weibo Management
+      parameters:
+        - name: platformAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 平台账号ID
+      responses:
+        '200':
+          description: 断开成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '404':
+          description: 账号不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/platforms/weibo/{platformAccountId}/status:
+    get:
+      summary: 获取微博账号状态
+      description: |
+        获取微博账号的连接状态和token信息
+        检查token是否过期
+      operationId: getWeiboStatus
+      tags:
+        - Weibo Management
+      parameters:
+        - name: platformAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 平台账号ID
+      responses:
+        '200':
+          description: 账号状态信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeiboAccountStatus'
+        '404':
+          description: 账号不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    PublishContentRequest:
+      type: object
+      required:
+        - contentId
+      properties:
+        contentId:
+          type: string
+          format: uuid
+          description: 内容ID
+        text:
+          type: string
+          description: 文字内容（纯文字≤2000字，分享链接≤140字）
+          maxLength: 2000
+        images:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: 图片URL数组（最多9张）
+          maxItems: 9
+        video:
+          type: string
+          format: uri
+          description: 视频URL（可选）
+        url:
+          type: string
+          format: uri
+          description: 分享链接（可选，使用statuses/share接口时需要）
+
+    PublishResult:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: 是否发布成功
+        platformPostId:
+          type: string
+          description: 微博ID（idstr）
+          example: "1234567890"
+        publishedUrl:
+          type: string
+          format: uri
+          description: 微博链接
+          example: "https://weibo.com/1234567890/xxx"
+        error:
+          type: string
+          description: 错误信息（如果失败）
+        errorCode:
+          type: string
+          description: 微博错误码
+          example: "21327"
+
+    WeiboAccountStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        platform:
+          type: string
+          enum: [WEIBO]
+        platformUsername:
+          type: string
+          description: 微博用户名
+        isConnected:
+          type: boolean
+          description: 是否已连接
+        tokenExpiry:
+          type: string
+          format: date-time
+          nullable: true
+          description: Token过期时间
+        needsReauth:
+          type: boolean
+          description: 是否需要重新授权（token过期）
+        createdAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: 错误信息
+        errorCode:
+          type: string
+          description: 错误码（可选）
+        details:
+          type: object
+          description: 错误详情（可选）
