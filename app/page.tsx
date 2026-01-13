@@ -1,23 +1,98 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useUserStore } from '@/store/user.store'
+import { verifyToken } from '@/lib/utils/auth'
 
 export default function Home() {
   const router = useRouter()
-  const { user } = useUserStore()
+  const { user, token, setUser, clearUser, isAuthenticated } = useUserStore()
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // 如果用户已登录，检查是否有 token
-    const token = localStorage.getItem('token')
-    if (token && user) {
-      // 已登录，跳转到 Dashboard
-      router.push('/dashboard')
-    }
-  }, [user, router])
+    // 认证状态检查逻辑
+    const checkAuthAndRedirect = async () => {
+      try {
+        // 从 localStorage 获取 token（如果 store 中没有）
+        const storedToken = token || localStorage.getItem('token')
+        
+        if (!storedToken) {
+          // 没有 token，重定向到登录页
+          router.push('/login')
+          return
+        }
 
+        // 验证 token
+        const result = await verifyToken(storedToken)
+
+        if (result.valid && result.user) {
+          // Token 有效，更新 store 状态
+          setUser(result.user, storedToken)
+          // 重定向到管理页面
+          router.push('/dashboard')
+        } else {
+          // Token 无效或过期，清除状态并重定向到登录页
+          if (process.env.NODE_ENV === 'development') {
+            const errorMsg = !result.valid && 'error' in result ? result.error : 'Unknown error'
+            console.log('[Auth Routing] Token invalid:', errorMsg)
+          }
+          clearUser()
+          localStorage.removeItem('token')
+          router.push('/login')
+        }
+      } catch (error) {
+        // 网络错误或其他错误，默认重定向到登录页
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[Auth Routing] Authentication check failed:', error)
+        }
+        clearUser()
+        localStorage.removeItem('token')
+        router.push('/login')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    checkAuthAndRedirect()
+  }, [router, token, setUser, clearUser])
+
+  // 多标签页同步：监听 localStorage 变化
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'user-storage') {
+        // 其他标签页修改了用户状态，重新检查认证
+        const storedToken = localStorage.getItem('token')
+        if (!storedToken) {
+          clearUser()
+          router.push('/login')
+        }
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [router, clearUser])
+
+  // 显示加载状态，避免页面闪烁
+  if (loading) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg animate-pulse">
+            <span className="text-4xl font-bold text-white">S</span>
+          </div>
+          <p className="text-gray-600">正在检查登录状态...</p>
+        </div>
+      </main>
+    )
+  }
+
+  // 正常情况下不应该显示这个页面（应该已经重定向）
+  // 但为了安全起见，保留原有的首页内容作为后备
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="text-center max-w-2xl">

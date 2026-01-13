@@ -1,0 +1,253 @@
+openapi: 3.0.0
+info:
+  title: Platform Integration API (Proposed)
+  description: |
+    统一的多平台集成API接口设计（基于调研结果）
+    此文档定义了统一接口规范，各平台适配器将实现此规范
+  version: 1.0.0
+
+paths:
+  /api/platforms:
+    get:
+      summary: 获取用户绑定的平台账号列表
+      operationId: getPlatformAccounts
+      tags:
+        - Platform Management
+      responses:
+        '200':
+          description: 平台账号列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlatformAccount'
+  
+  /api/platforms/{platform}/auth:
+    get:
+      summary: 获取平台OAuth授权URL
+      operationId: getAuthUrl
+      tags:
+        - Platform Authentication
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [weibo, twitter, threads]
+            description: 平台标识符（基于调研结果）
+      responses:
+        '200':
+          description: 授权URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authUrl:
+                    type: string
+                    format: uri
+                  state:
+                    type: string
+                    description: CSRF防护参数
+  
+  /api/platforms/{platform}/callback:
+    get:
+      summary: OAuth回调处理
+      operationId: handleCallback
+      tags:
+        - Platform Authentication
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [weibo, twitter, threads]
+            description: 平台标识符（基于调研结果）
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 授权成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformAccount'
+        '400':
+          description: 授权失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  
+  /api/platforms/{platformId}/publish:
+    post:
+      summary: 发布内容到平台
+      operationId: publishContent
+      tags:
+        - Content Publishing
+      parameters:
+        - name: platformId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishContentRequest'
+      responses:
+        '200':
+          description: 发布成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishResult'
+        '400':
+          description: 发布失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  
+  /api/platforms/{platformId}/data:
+    get:
+      summary: 获取平台数据
+      operationId: getPlatformData
+      tags:
+        - Data Analytics
+      parameters:
+        - name: platformId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: 平台数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformData'
+
+components:
+  schemas:
+    PlatformAccount:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        platform:
+          type: string
+          enum: [weibo, twitter, threads]
+          description: 平台标识符
+        platformUsername:
+          type: string
+        isConnected:
+          type: boolean
+        tokenExpiry:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    
+    PublishContentRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          description: 内容正文（统一格式，适配器会自动处理平台限制）
+          maxLength: 2000
+          example: "这是一条测试内容"
+        images:
+          type: array
+          items:
+            type: string
+            format: uri
+          maxItems: 9
+          description: 图片URL列表（最多9张，适配器会验证平台限制）
+        video:
+          type: string
+          format: uri
+          description: 视频URL（可选，适配器会验证平台限制）
+        scheduledAt:
+          type: string
+          format: date-time
+          description: 定时发布时间（可选）
+        metadata:
+          type: object
+          description: 平台特定元数据（可选）
+          additionalProperties: true
+    
+    PublishResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        platformContentId:
+          type: string
+          description: 平台返回的内容ID
+        publishedUrl:
+          type: string
+          format: uri
+          description: 发布后的URL
+        error:
+          type: string
+          description: 错误信息（如果失败）
+    
+    PlatformData:
+      type: object
+      properties:
+        views:
+          type: integer
+        likes:
+          type: integer
+        comments:
+          type: integer
+        shares:
+          type: integer
+        followers:
+          type: integer
+        engagementRate:
+          type: number
+          format: float
+    
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: 统一错误码
+        details:
+          type: object
+          description: 平台特定错误详情

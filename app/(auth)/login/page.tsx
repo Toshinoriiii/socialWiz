@@ -1,20 +1,52 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MailOutlined, LockOutlined } from '@ant-design/icons'
 import { Button, Input } from '@/components/ui'
+import { useUserStore } from '@/store/user.store'
+import { verifyToken } from '@/lib/utils/auth'
 import styles from './login.module.css'
 
 export default function LoginPage() {
   const router = useRouter()
+  const { user, token, setUser } = useUserStore()
   const [loading, setLoading] = useState(false)
+  const [checkingAuth, setCheckingAuth] = useState(true)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [formData, setFormData] = useState({
     email: '',
     password: ''
   })
+
+  // 检查用户是否已登录，如果已登录则重定向到管理页面
+  useEffect(() => {
+    const checkAuthAndRedirect = async () => {
+      try {
+        const storedToken = token || localStorage.getItem('token')
+        
+        if (storedToken) {
+          // 验证 token
+          const result = await verifyToken(storedToken)
+          
+          if (result.valid && result.user) {
+            // 已登录，更新 store 并重定向到管理页面
+            setUser(result.user, storedToken)
+            router.push('/dashboard')
+            return
+          }
+        }
+      } catch (error) {
+        // 验证失败，继续显示登录页面
+        console.error('Auth check failed:', error)
+      } finally {
+        setCheckingAuth(false)
+      }
+    }
+
+    checkAuthAndRedirect()
+  }, [router, token, setUser])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,8 +74,11 @@ export default function LoginPage() {
       // 保存token到localStorage
       localStorage.setItem('token', data.token)
       
-      // 跳转到首页
-      router.push('/home')
+      // 更新 store
+      setUser(data.user, data.token)
+      
+      // 跳转到管理页面
+      router.push('/dashboard')
     } catch (error) {
       setErrors({ general: '网络错误，请检查网络连接' })
     } finally {
@@ -61,6 +96,22 @@ export default function LoginPage() {
         return newErrors
       })
     }
+  }
+
+  // 显示加载状态，避免页面闪烁
+  if (checkingAuth) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.card}>
+          <div className="text-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg animate-pulse">
+              <span className="text-2xl font-bold text-white">S</span>
+            </div>
+            <p className="text-gray-600">正在检查登录状态...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
