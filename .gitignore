@@ -13,7 +13,6 @@ coverage/
 out/
 build/
 dist/
-.next
 # Production
 *.log
 npm-debug.log*
