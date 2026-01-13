@@ -36,6 +36,10 @@
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
     "@hookform/resolvers": "^5.2.2",
+    "@mastra/core": "^0.24.9",
+    "@mastra/libsql": "^0.16.4",
+    "@mastra/loggers": "^0.10.19",
+    "@mastra/memory": "^0.15.13",
     "@prisma/client": "^5.22.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^25.0.3",
@@ -48,6 +52,7 @@
     "echarts-for-react": "^3.0.5",
     "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.3",
+    "mastra": "^0.18.9",
     "next": "^16.1.1",
     "nuqs": "^2.8.6",
     "postcss": "^8.5.6",
