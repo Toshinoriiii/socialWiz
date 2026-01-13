@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { ContentEditor } from '@/components/dashboard/ContentEditor'
 import { PlatformPreview } from '@/components/dashboard/PlatformPreview'
 import { AIChatPanel } from '@/components/dashboard/AIChatPanel'
-import { Tabs } from '@/components/ui'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Button } from '@/components/ui/button'
 import styles from './publish.module.css'
 
 // Mock 平台数据
@@ -54,6 +55,12 @@ export default function PublishPage() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['weibo'])
   const [images, setImages] = useState<string[]>([])
   const [scheduledTime, setScheduledTime] = useState<Date | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  // 防止 hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Mock 图片数据
   const mockImages = [
@@ -139,6 +146,21 @@ export default function PublishPage() {
 
   const connectedPlatforms = mockPlatforms.filter((p) => p.connected)
 
+  // 在客户端挂载之前不渲染 Tabs，避免 hydration mismatch
+  if (!mounted) {
+    return (
+      <div className={styles.publishPage}>
+        <div className={styles.header}>
+          <h1 className={styles.pageTitle}>创建内容</h1>
+          <p className={styles.pageSubtitle}>创作并发布到多个社交媒体平台</p>
+        </div>
+        <div className="flex items-center justify-center p-8">
+          <div className="text-muted-foreground">加载中...</div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.publishPage}>
       <div className={styles.header}>
@@ -147,35 +169,42 @@ export default function PublishPage() {
       </div>
 
       {/* 标签页 */}
-      <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-2 mb-4">
+          {tabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id}>
+              <span className="mr-2">{tab.icon}</span>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      <div className={styles.layout}>
-        {/* 左侧：编辑器或AI对话区域 */}
-        <div className={styles.mainSection}>
-          {activeTab === 'editor' ? (
-            /* 编辑器模式 */
-            <div className={styles.editorCard}>
-              <div className={styles.cardHeader}>
-                <h2 className={styles.cardTitle}>内容编辑</h2>
+        <div className={styles.layout}>
+          {/* 左侧：编辑器或AI对话区域 */}
+          <div className={styles.mainSection}>
+            <TabsContent value="editor" className="mt-0">
+              <div className={styles.editorCard}>
+                <div className={styles.cardHeader}>
+                  <h2 className={styles.cardTitle}>内容编辑</h2>
+                </div>
+                <ContentEditor
+                  content={content}
+                  onChange={setContent}
+                  placeholder="分享你的想法..."
+                  maxLength={2000}
+                />
               </div>
-              <ContentEditor
-                content={content}
-                onChange={setContent}
-                placeholder="分享你的想法..."
-                maxLength={2000}
-              />
-            </div>
-          ) : (
-            /* AI 对话模式 */
-            <div className={styles.chatCard}>
-              <AIChatPanel
-                onContentReady={handleAIContentReady}
-                onPublish={handleAIPublish}
-                selectedPlatforms={selectedPlatforms}
-              />
-            </div>
-          )}
-        </div>
+            </TabsContent>
+            <TabsContent value="ai-chat" className="mt-0">
+              <div className={styles.chatCard}>
+                <AIChatPanel
+                  onContentReady={handleAIContentReady}
+                  onPublish={handleAIPublish}
+                  selectedPlatforms={selectedPlatforms}
+                />
+              </div>
+            </TabsContent>
+          </div>
 
         {/* 右侧：预览和设置区域 */}
         <div className={styles.previewSection}>
@@ -232,26 +261,26 @@ export default function PublishPage() {
           {/* 操作按钮 */}
           {activeTab === 'editor' && (
             <div className={styles.actions}>
-              <button
+              <Button
                 onClick={handleSchedule}
-                className={styles.scheduleButton}
+                variant="outline"
                 disabled={!content.trim() || selectedPlatforms.length === 0}
               >
                 <span>📅</span>
                 定时发布
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handlePublish}
-                className={styles.publishButton}
                 disabled={!content.trim() || selectedPlatforms.length === 0}
               >
                 <span>🚀</span>
                 立即发布
-              </button>
+              </Button>
             </div>
           )}
         </div>
       </div>
+      </Tabs>
     </div>
   )
 }

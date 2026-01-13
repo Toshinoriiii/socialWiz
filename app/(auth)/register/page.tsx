@@ -3,8 +3,12 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { MailOutlined, LockOutlined, UserOutlined } from '@ant-design/icons'
-import { Button, Input } from '@/components/ui'
+import { Mail, Lock, User } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import styles from './register.module.css'
     
 export default function RegisterPage() {
@@ -99,62 +103,100 @@ export default function RegisterPage() {
 
         <form onSubmit={handleSubmit} className={styles.form}>
           {errors.general && (
-            <div className={styles.errorAlert}>{errors.general}</div>
+            <Alert variant="destructive">
+              <AlertDescription>{errors.general}</AlertDescription>
+            </Alert>
           )}
 
-          <Input
-            label="用户名"
-            type="text"
-            placeholder="请输入用户名"
-            value={formData.name}
-            onChange={(e) => handleChange('name', e.target.value)}
-            error={errors.name}
-            prefixIcon={<UserOutlined />}
-            required
-            fullWidth
-          />
+          <div className="space-y-2">
+            <Label htmlFor="name">用户名</Label>
+            <InputGroup>
+              <InputGroupAddon>
+                <User className="size-4" />
+              </InputGroupAddon>
+              <InputGroupInput
+                id="name"
+                type="text"
+                placeholder="请输入用户名"
+                value={formData.name}
+                onChange={(e) => handleChange('name', e.target.value)}
+                aria-invalid={!!errors.name}
+                required
+              />
+            </InputGroup>
+            {errors.name && (
+              <p className="text-sm text-destructive">{errors.name}</p>
+            )}
+          </div>
 
-          <Input
-            label="邮箱"
-            type="email"
-            placeholder="请输入邮箱"
-            value={formData.email}
-            onChange={(e) => handleChange('email', e.target.value)}
-            error={errors.email}
-            prefixIcon={<MailOutlined />}
-            required
-            fullWidth
-          />
+          <div className="space-y-2">
+            <Label htmlFor="email">邮箱</Label>
+            <InputGroup>
+              <InputGroupAddon>
+                <Mail className="size-4" />
+              </InputGroupAddon>
+              <InputGroupInput
+                id="email"
+                type="email"
+                placeholder="请输入邮箱"
+                value={formData.email}
+                onChange={(e) => handleChange('email', e.target.value)}
+                aria-invalid={!!errors.email}
+                required
+              />
+            </InputGroup>
+            {errors.email && (
+              <p className="text-sm text-destructive">{errors.email}</p>
+            )}
+          </div>
 
-          <Input
-            label="密码"
-            type="password"
-            placeholder="请输入密码（至少8位，包含大小写字母和数字）"
-            value={formData.password}
-            onChange={(e) => handleChange('password', e.target.value)}
-            error={errors.password}
-            prefixIcon={<LockOutlined />}
-            required
-            fullWidth
-          />
+          <div className="space-y-2">
+            <Label htmlFor="password">密码</Label>
+            <InputGroup>
+              <InputGroupAddon>
+                <Lock className="size-4" />
+              </InputGroupAddon>
+              <InputGroupInput
+                id="password"
+                type="password"
+                placeholder="请输入密码（至少8位，包含大小写字母和数字）"
+                value={formData.password}
+                onChange={(e) => handleChange('password', e.target.value)}
+                aria-invalid={!!errors.password}
+                required
+              />
+            </InputGroup>
+            {errors.password && (
+              <p className="text-sm text-destructive">{errors.password}</p>
+            )}
+          </div>
 
-          <Input
-            label="确认密码"
-            type="password"
-            placeholder="请再次输入密码"
-            value={formData.confirmPassword}
-            onChange={(e) => handleChange('confirmPassword', e.target.value)}
-            error={errors.confirmPassword}
-            prefixIcon={<LockOutlined />}
-            required
-            fullWidth
-          />
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">确认密码</Label>
+            <InputGroup>
+              <InputGroupAddon>
+                <Lock className="size-4" />
+              </InputGroupAddon>
+              <InputGroupInput
+                id="confirmPassword"
+                type="password"
+                placeholder="请再次输入密码"
+                value={formData.confirmPassword}
+                onChange={(e) => handleChange('confirmPassword', e.target.value)}
+                aria-invalid={!!errors.confirmPassword}
+                required
+              />
+            </InputGroup>
+            {errors.confirmPassword && (
+              <p className="text-sm text-destructive">{errors.confirmPassword}</p>
+            )}
+          </div>
 
           <Button
             type="submit"
             loading={loading}
-            fullWidth
             size="lg"
+            className="w-full"
           >
             注册
           </Button>

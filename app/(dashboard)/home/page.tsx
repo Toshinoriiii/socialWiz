@@ -1,20 +1,21 @@
-﻿'use client'
+'use client'
 
 import React, { useState } from 'react'
 import Link from 'next/link'
 import {
-  FileTextOutlined,
-  UserOutlined,
-  EyeOutlined,
-  HeartOutlined,
-  PlusOutlined,
-  SearchOutlined,
-  FilterOutlined,
-  CommentOutlined,
-  LikeOutlined,
-  ShareAltOutlined
-} from '@ant-design/icons'
-import { Button } from '@/components/ui'
+  FileText,
+  Users,
+  Eye,
+  Heart,
+  Plus,
+  Search,
+  Filter,
+  MessageCircle,
+  ThumbsUp,
+  Share2
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import styles from './home.module.css'
 
 // 模拟数据
@@ -24,28 +25,28 @@ const statsData = [
     value: '128,456',
     change: '+12.5%',
     chartType: 'line',
-    icon: <UserOutlined />
+    icon: <Users className="size-5" />
   },
   {
     title: '互动增长率',
     value: '42.3%',
     change: '+8.2%',
     chartType: 'bar',
-    icon: <HeartOutlined />
+    icon: <Heart className="size-5" />
   },
   {
     title: '内容发布量',
     value: '1,248',
     change: '+5.7%',
     chartType: 'area',
-    icon: <FileTextOutlined />
+    icon: <FileText className="size-5" />
   },
   {
     title: '转化率',
     value: '3.8%',
     change: '-1.2%',
     chartType: 'pie',
-    icon: <EyeOutlined />
+    icon: <Eye className="size-5" />
   }
 ]
 
@@ -132,10 +133,10 @@ export default function HomePage() {
               <h2 className={styles.sectionTitle}>数据概览</h2>
               <p className={styles.sectionSubtitle}>实时监控平台表现</p>
             </div>
-            <button className={styles.filterBtn}>
-              <FilterOutlined />
+            <Button variant="outline" size="sm">
+              <Filter className="size-4" />
               <span>筛选</span>
-            </button>
+            </Button>
           </div>
           <div className={styles.statsGrid}>
             {statsData.map((stat, index) => (
@@ -166,8 +167,8 @@ export default function HomePage() {
             <h2 className={styles.sectionTitle}>内容管理</h2>
             <div className={styles.headerActions}>
               <div className={styles.searchBox}>
-                <SearchOutlined className={styles.searchIcon} />
-                <input
+                <Search className={styles.searchIcon} />
+                <Input
                   type="text"
                   placeholder="搜索内容..."
                   value={searchText}
@@ -176,7 +177,8 @@ export default function HomePage() {
                 />
               </div>
               <Link href="/publish">
-                <Button icon={<PlusOutlined />} size="lg">
+                <Button size="lg">
+                  <Plus className="size-4" />
                   新建内容
                 </Button>
               </Link>
@@ -202,16 +204,16 @@ export default function HomePage() {
                 )}
                 <div className={styles.cardFooter}>
                   <span className={styles.metricItem}>
-                    <EyeOutlined /> {item.metrics.views}
+                    <Eye className="size-4" /> {item.metrics.views}
                   </span>
                   <span className={styles.metricItem}>
-                    <CommentOutlined /> {item.metrics.comments}
+                    <MessageCircle className="size-4" /> {item.metrics.comments}
                   </span>
                   <span className={styles.metricItem}>
-                    <LikeOutlined /> {item.metrics.likes}
+                    <ThumbsUp className="size-4" /> {item.metrics.likes}
                   </span>
                   <span className={styles.metricItem}>
-                    <ShareAltOutlined />
+                    <Share2 className="size-4" />
                   </span>
                 </div>
               </div>

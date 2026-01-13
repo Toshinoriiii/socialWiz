@@ -1,5 +1,5 @@
 import React from 'react'
-import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons'
+import { ArrowUp, ArrowDown } from 'lucide-react'
 import styles from './StatsCard.module.css'
 
 export interface StatsCardProps {
@@ -30,7 +30,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
       {change !== undefined && (
         <div className={styles.footer}>
           <span className={`${styles.change} ${styles[trend || 'up']}`}>
-            {trend === 'up' ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+            {trend === 'up' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
             {Math.abs(change)}%
           </span>
           <span className={styles.label}>较上周</span>

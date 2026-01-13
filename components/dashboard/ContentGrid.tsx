@@ -1,7 +1,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { formatDate } from '@/lib/utils/date'
-import { Card } from '@/components/ui'
+import { Card, CardContent } from '@/components/ui/card'
 import styles from './ContentGrid.module.css'
 
 interface ContentItem {
@@ -47,13 +47,13 @@ export const ContentGrid: React.FC<ContentGridProps> = ({ items, loading }) => {
   return (
     <div className={styles.grid}>
       {items.map((item) => (
-        <Card key={item.id} hoverable className={styles.contentCard}>
+        <Card key={item.id} className={`${styles.contentCard} hover:shadow-md transition-shadow`}>
           {item.coverImage && (
             <div className={styles.cover}>
               <img src={item.coverImage} alt={item.title} />
             </div>
           )}
-          <div className={styles.content}>
+          <CardContent className={styles.content}>
             <h4 className={styles.title}>{item.title}</h4>
             <div className={styles.meta}>
               <span className={styles.date}>{formatDate(item.createdAt)}</span>
@@ -68,7 +68,7 @@ export const ContentGrid: React.FC<ContentGridProps> = ({ items, loading }) => {
             <span className={`${styles.status} ${styles[item.status.toLowerCase()]}`}>
               {item.status}
             </span>
-          </div>
+          </CardContent>
         </Card>
       ))}
     </div>

@@ -1,26 +1,34 @@
 'use client'
 
-import React, { useState } from 'react'
+import React from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
-  BellOutlined,
-  UserOutlined,
-  SettingOutlined,
-  HomeOutlined,
-  EditOutlined,
-  BarChartOutlined,
-  CalendarOutlined
-} from '@ant-design/icons'
+  Bell,
+  User,
+  Settings,
+  Home,
+  Edit,
+  BarChart3,
+  Calendar
+} from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Button } from '@/components/ui/button'
 import { useUserStore } from '@/store/user.store'
 import styles from './layout.module.css'
 
 const navItems = [
-  { key: '/home', label: '首页', icon: <HomeOutlined /> },
-  { key: '/publish', label: '内容发布', icon: <EditOutlined /> },
-  { key: '/analytics', label: '数据分析', icon: <BarChartOutlined /> },
-  { key: '/schedule', label: '日程管理', icon: <CalendarOutlined /> },
-  { key: '/settings', label: '账户设置', icon: <SettingOutlined /> }
+  { key: '/home', label: '首页', icon: <Home className="size-4" /> },
+  { key: '/publish', label: '内容发布', icon: <Edit className="size-4" /> },
+  { key: '/analytics', label: '数据分析', icon: <BarChart3 className="size-4" /> },
+  { key: '/schedule', label: '日程管理', icon: <Calendar className="size-4" /> },
+  { key: '/settings', label: '账户设置', icon: <Settings className="size-4" /> }
 ]
 
 export default function DashboardLayout({
@@ -31,7 +39,6 @@ export default function DashboardLayout({
   const router = useRouter()
   const pathname = usePathname()
   const { user, clearUser } = useUserStore()
-  const [showUserMenu, setShowUserMenu] = useState(false)
 
   const handleLogout = () => {
     clearUser()
@@ -50,37 +57,37 @@ export default function DashboardLayout({
           </div>
           <div className={styles.spacer}></div>
           <div className={styles.headerActions}>
-            <button className={styles.iconButton}>
-              <BellOutlined />
-            </button>
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/10">
+              <Bell className="size-5" />
+            </Button>
             {user && (
-              <div className={styles.userMenu}>
-                <button
-                  className={styles.userButton}
-                  onClick={() => setShowUserMenu(!showUserMenu)}
-                >
-                  {user.avatar ? (
-                    <img src={user.avatar} alt={user.name} className={styles.avatar} />
-                  ) : (
-                    <div className={styles.avatarPlaceholder}>
-                      {user.name?.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <span className={styles.userName}>{user.name}</span>
-                </button>
-                {showUserMenu && (
-                  <div className={styles.dropdown}>
-                    <Link href="/settings" className={styles.menuItem}>
-                      <SettingOutlined />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="text-white hover:bg-white/10 h-auto p-2">
+                    {user.avatar ? (
+                      <img src={user.avatar} alt={user.name} className={styles.avatar} />
+                    ) : (
+                      <div className={styles.avatarPlaceholder}>
+                        {user.name?.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className={styles.userName}>{user.name}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" className="flex items-center gap-2">
+                      <Settings className="size-4" />
                       <span>设置</span>
                     </Link>
-                    <button className={styles.menuItem} onClick={handleLogout}>
-                      <UserOutlined />
-                      <span>登出</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout} className="flex items-center gap-2">
+                    <User className="size-4" />
+                    <span>登出</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
         </div>
@@ -97,7 +104,7 @@ export default function DashboardLayout({
                 href={item.key}
                 className={`${styles.tab} ${isActive ? styles.tabActive : ''}`}
               >
-                <span className={styles.tabIcon}>{item.icon}</span>
+                {item.icon}
                 <span className={styles.tabLabel}>{item.label}</span>
               </Link>
             )
