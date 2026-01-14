@@ -82,7 +82,7 @@ export default function LoginPage() {
       setUser(data.user, data.token)
       
       // 跳转到管理页面
-      router.push('/dashboard')
+      router.push('/home')
     } catch (error) {
       setErrors({ general: '网络错误，请检查网络连接' })
     } finally {
