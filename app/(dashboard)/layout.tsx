@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/Button'
 import { useUserStore } from '@/store/user.store'
-import styles from './layout.module.css'
+import { cn } from '@/lib/utils'
 
 const navItems = [
   { key: '/home', label: '首页', icon: <Home className="size-4" /> },
@@ -47,16 +47,18 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className={styles.layout}>
+    <div className="min-h-screen flex flex-col bg-muted/50">
       {/* 顶部导航栏 */}
-      <header className={styles.header}>
-        <div className={styles.headerContent}>
-          <div className={styles.logo}>
-            <div className={styles.logoIcon}>S</div>
-            <h1 className={styles.logoText}>SocialWiz</h1>
+      <header className="bg-foreground text-foreground h-16 flex items-center px-6 shadow-sm z-10">
+        <div className="w-full max-w-[1400px] mx-auto flex items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center font-bold text-lg text-white">
+              S
+            </div>
+            <h1 className="text-xl font-bold text-white">SocialWiz</h1>
           </div>
-          <div className={styles.spacer}></div>
-          <div className={styles.headerActions}>
+          <div className="flex-1"></div>
+          <div className="flex items-center gap-5">
             <Button variant="ghost" size="icon" className="text-white hover:bg-white/10">
               <Bell className="size-5" />
             </Button>
@@ -65,13 +67,13 @@ export default function DashboardLayout({
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="text-white hover:bg-white/10 h-auto p-2">
                     {user.avatar ? (
-                      <img src={user.avatar} alt={user.name} className={styles.avatar} />
+                      <img src={user.avatar} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
                     ) : (
-                      <div className={styles.avatarPlaceholder}>
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-semibold text-white">
                         {user.name?.charAt(0).toUpperCase()}
                       </div>
                     )}
-                    <span className={styles.userName}>{user.name}</span>
+                    <span className="ml-2 text-sm font-medium hidden md:inline">{user.name}</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
@@ -94,18 +96,21 @@ export default function DashboardLayout({
       </header>
 
       {/* 标签式导航 */}
-      <nav className={styles.tabNav}>
-        <div className={styles.tabNavContent}>
+      <nav className="bg-background border-b border-border px-6">
+        <div className="max-w-[1400px] mx-auto flex gap-0">
           {navItems.map((item) => {
             const isActive = pathname === item.key || pathname?.startsWith(item.key + '/')
             return (
               <Link
                 key={item.key}
                 href={item.key}
-                className={`${styles.tab} ${isActive ? styles.tabActive : ''}`}
+                className={cn(
+                  "flex items-center gap-2 px-5 py-4 text-sm font-medium text-muted-foreground border-b-2 border-transparent transition-colors hover:text-foreground whitespace-nowrap",
+                  isActive && "text-primary border-primary"
+                )}
               >
                 {item.icon}
-                <span className={styles.tabLabel}>{item.label}</span>
+                <span className="hidden sm:inline font-medium">{item.label}</span>
               </Link>
             )
           })}
@@ -113,7 +118,7 @@ export default function DashboardLayout({
       </nav>
 
       {/* 主内容区 */}
-      <main className={styles.main}>
+      <main className="flex-1 w-full overflow-y-auto">
         {children}
       </main>
     </div>

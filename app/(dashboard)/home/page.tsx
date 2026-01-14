@@ -16,7 +16,8 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import styles from './home.module.css'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/badge'
 
 // 模拟数据
 const statsData = [
@@ -124,60 +125,62 @@ export default function HomePage() {
   const [searchText, setSearchText] = useState('')
 
   return (
-    <div className={styles.home}>
-      <div className={styles.mainContent}>
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 min-h-screen p-6">
+      <div className="flex flex-col gap-8">
         {/* 数据概览区域 */}
-        <div className={styles.statsSection}>
-          <div className={styles.sectionHeader}>
+        <div>
+          <div className="flex justify-between items-start mb-6">
             <div>
-              <h2 className={styles.sectionTitle}>数据概览</h2>
-              <p className={styles.sectionSubtitle}>实时监控平台表现</p>
+              <h2 className="text-2xl font-bold mb-1">数据概览</h2>
+              <p className="text-sm text-muted-foreground">实时监控平台表现</p>
             </div>
             <Button variant="outline" size="sm">
               <Filter className="size-4" />
               <span>筛选</span>
             </Button>
           </div>
-          <div className={styles.statsGrid}>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
             {statsData.map((stat, index) => (
-              <div key={index} className={styles.statCard}>
-                <div className={styles.statHeader}>
-                  <div>
-                    <p className={styles.statLabel}>{stat.title}</p>
-                    <h3 className={styles.statValue}>{stat.value}</h3>
-                    <p className={stat.change.startsWith('+') ? styles.statChangeUp : styles.statChangeDown}>
-                      {stat.change} 环比
-                    </p>
+              <Card key={index} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-1">{stat.title}</p>
+                      <h3 className="text-3xl font-bold mb-2">{stat.value}</h3>
+                      <p className={`text-sm ${stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
+                        {stat.change} 环比
+                      </p>
+                    </div>
+                    <div className="w-16 h-16 border-2 border-foreground rounded-lg flex items-center justify-center bg-muted/50">
+                      {stat.icon}
+                    </div>
                   </div>
-                  <div className={styles.statIcon}>
-                    {stat.icon}
+                  <div className="h-12 mt-4">
+                    <div className="w-full h-full bg-gradient-to-r from-muted to-muted/50 rounded-md opacity-70"></div>
                   </div>
-                </div>
-                <div className={styles.statChart}>
-                  <div className={styles.chartPlaceholder}></div>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
         </div>
 
         {/* 内容管理区域 */}
-        <div className={styles.contentSection}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>内容管理</h2>
-            <div className={styles.headerActions}>
-              <div className={styles.searchBox}>
-                <Search className={styles.searchIcon} />
+        <div>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+            <h2 className="text-2xl font-bold">内容管理</h2>
+            <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-initial sm:max-w-[300px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                 <Input
                   type="text"
                   placeholder="搜索内容..."
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
-                  className={styles.searchInput}
+                  className="pl-10"
                 />
               </div>
               <Link href="/publish">
-                <Button size="lg">
+                <Button size="lg" className="w-full sm:w-auto">
                   <Plus className="size-4" />
                   新建内容
                 </Button>
@@ -186,72 +189,100 @@ export default function HomePage() {
           </div>
 
           {/* 内容网格 */}
-          <div className={styles.contentGrid}>
-            {contentItems.map((item) => (
-              <div key={item.id} className={styles.contentCard}>
-                <div className={styles.cardHeader}>
-                  <div className={styles.platformBadge}>
-                    <div className={`${styles.platformDot} ${styles[`platform${item.platformColor.charAt(0).toUpperCase() + item.platformColor.slice(1)}`]}`}></div>
-                    <span>{item.platform}</span>
-                  </div>
-                  <span className={styles.contentTime}>{item.time}</span>
-                </div>
-                <p className={styles.contentText}>{item.content}</p>
-                {item.image && (
-                  <div className={styles.contentImage}>
-                    <img src={item.image} alt={item.platform} />
-                  </div>
-                )}
-                <div className={styles.cardFooter}>
-                  <span className={styles.metricItem}>
-                    <Eye className="size-4" /> {item.metrics.views}
-                  </span>
-                  <span className={styles.metricItem}>
-                    <MessageCircle className="size-4" /> {item.metrics.comments}
-                  </span>
-                  <span className={styles.metricItem}>
-                    <ThumbsUp className="size-4" /> {item.metrics.likes}
-                  </span>
-                  <span className={styles.metricItem}>
-                    <Share2 className="size-4" />
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {contentItems.map((item) => {
+              const platformColorMap: Record<string, string> = {
+                green: 'bg-green-500',
+                red: 'bg-red-500',
+                purple: 'bg-purple-500',
+                pink: 'bg-pink-500'
+              }
+              return (
+                <Card key={item.id} className="hover:shadow-md transition-all hover:-translate-y-1">
+                  <CardHeader className="pb-3">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-3 h-3 rounded-full ${platformColorMap[item.platformColor] || 'bg-gray-500'}`}></div>
+                        <span className="text-sm font-semibold">{item.platform}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{item.time}</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-sm text-foreground line-clamp-2 mb-4">{item.content}</p>
+                    {item.image && (
+                      <div className="h-48 overflow-hidden rounded-md mb-4">
+                        <img src={item.image} alt={item.platform} className="w-full h-full object-cover" />
+                      </div>
+                    )}
+                  </CardContent>
+                  <CardFooter className="pt-0 flex justify-between border-t">
+                    <div className="flex gap-4 text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        <Eye className="size-4" /> {item.metrics.views}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageCircle className="size-4" /> {item.metrics.comments}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <ThumbsUp className="size-4" /> {item.metrics.likes}
+                      </span>
+                    </div>
+                    <Share2 className="size-4 text-muted-foreground" />
+                  </CardFooter>
+                </Card>
+              )
+            })}
           </div>
         </div>
       </div>
 
       {/* 右侧边栏 */}
-      <aside className={styles.sidebar}>
+      <aside className="space-y-6">
         {/* 热门话题 */}
-        <div className={styles.sidebarSection}>
-          <h3 className={styles.sidebarTitle}>热门话题</h3>
-          <div className={styles.topicList}>
-            {trendingTopics.map((topic, index) => (
-              <button key={index} className={styles.topicItem}>
-                <span className={styles.topicTag}>{topic}</span>
-                <p className={styles.topicCount}>1,245 条相关内容</p>
-              </button>
-            ))}
-          </div>
-        </div>
+        <Card className="sticky top-6">
+          <CardHeader>
+            <CardTitle className="text-lg">热门话题</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3">
+              {trendingTopics.map((topic, index) => (
+                <button
+                  key={index}
+                  className="w-full text-left p-3 bg-muted/50 border border-border rounded-md hover:bg-muted hover:border-foreground/20 transition-colors"
+                >
+                  <span className="text-sm font-semibold text-primary">{topic}</span>
+                  <p className="text-xs text-muted-foreground mt-1">1,245 条相关内容</p>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* 草稿箱 */}
-        <div className={styles.sidebarSection}>
-          <div className={styles.sidebarHeader}>
-            <h3 className={styles.sidebarTitle}>草稿箱</h3>
-            <button className={styles.viewAllBtn}>查看全部</button>
-          </div>
-          <div className={styles.draftList}>
-            {drafts.map((draft) => (
-              <div key={draft.id} className={styles.draftItem}>
-                <h4 className={styles.draftTitle}>{draft.title}</h4>
-                <p className={styles.draftTime}>{draft.time}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Card>
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <CardTitle className="text-lg">草稿箱</CardTitle>
+              <button className="text-sm text-primary font-semibold hover:text-primary/80 transition-colors">
+                查看全部
+              </button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3">
+              {drafts.map((draft) => (
+                <div
+                  key={draft.id}
+                  className="p-3 bg-muted/50 border border-border rounded-md hover:bg-muted hover:border-foreground/20 transition-colors cursor-pointer"
+                >
+                  <h4 className="text-sm font-semibold truncate">{draft.title}</h4>
+                  <p className="text-xs text-muted-foreground mt-1">{draft.time}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </aside>
     </div>
   )
