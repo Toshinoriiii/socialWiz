@@ -1,7 +1,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { formatDate } from '@/lib/utils/date'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/Card'
 import styles from './ContentGrid.module.css'
 
 interface ContentItem {

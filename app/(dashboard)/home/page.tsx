@@ -1,289 +1,239 @@
 'use client'
 
-import React, { useState } from 'react'
+import React from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   FileText,
   Users,
   Eye,
   Heart,
-  Plus,
-  Search,
-  Filter,
   MessageCircle,
   ThumbsUp,
-  Share2
+  Share2,
+  Image as ImageIcon,
+  Video,
+  TrendingUp,
+  Globe
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/badge'
 
-// 模拟数据
-const statsData = [
+// 数据概览卡片数据（符合 FR-006）
+const overviewCards = [
   {
-    title: '总粉丝数',
-    value: '128,456',
-    change: '+12.5%',
-    chartType: 'line',
-    icon: <Users className="size-5" />
+    id: 'works-overview',
+    title: '作品数据概览',
+    description: '共1篇 已发布0篇',
+    value: '1',
+    badge: '近7日新增1',
+    icon: <FileText className="size-5" />,
+    color: 'blue' as const,
+    href: '/data-overview'
   },
   {
-    title: '互动增长率',
-    value: '42.3%',
-    change: '+8.2%',
-    chartType: 'bar',
-    icon: <Heart className="size-5" />
+    id: 'accounts-overview',
+    title: '账号数据概览',
+    description: '共0个账号',
+    value: '0',
+    badge: '连接平台 0',
+    icon: <Users className="size-5" />,
+    color: 'green' as const,
+    href: '/accounts'
   },
   {
-    title: '内容发布量',
-    value: '1,248',
-    change: '+5.7%',
-    chartType: 'area',
-    icon: <FileText className="size-5" />
+    id: 'publish-overview',
+    title: '发布数据概览',
+    description: '总发布0 成功发布0',
+    value: '0',
+    badge: '部分成功 0',
+    icon: <TrendingUp className="size-5" />,
+    color: 'purple' as const,
+    href: '/publish/history'
   },
   {
-    title: '转化率',
-    value: '3.8%',
-    change: '-1.2%',
-    chartType: 'pie',
-    icon: <Eye className="size-5" />
+    id: 'interaction-overview',
+    title: '互动数据概览',
+    description: '7日数据',
+    value: '0',
+    metrics: {
+      views: 0,
+      comments: 0,
+      likes: 0,
+      favorites: 0,
+      shares: 0
+    },
+    icon: <Heart className="size-5" />,
+    color: 'pink' as const,
+    href: '/analytics'
   }
 ]
 
-const contentItems = [
+// 快速创作入口（符合 FR-007）
+const quickCreateActions = [
   {
-    id: '1',
-    platform: '微信',
-    platformColor: 'green',
-    time: '2 小时前',
-    content: '新产品发布会即将开始，敬请期待！#新品发布 #科技创新',
-    metrics: { views: 1245, comments: 64, likes: 231 },
-    image: 'https://ai-public.mastergo.com/ai/img_res/1975e2e250b3ec842131639b4aab269e.jpg'
+    id: 'create-article',
+    label: '创建文章',
+    description: '快速创建新的文章作品,在作品管理进行发布',
+    icon: <FileText className="size-5" />,
+    href: '/publish/create-article',
+    color: 'green' as const
   },
   {
-    id: '2',
-    platform: '微博',
-    platformColor: 'red',
-    time: '5 小时前',
-    content: '用户调研结果显示，90% 的用户对我们的新功能表示满意。感谢大家的支持！',
-    metrics: { views: 5621, comments: 128, likes: 842 },
-    image: 'https://ai-public.mastergo.com/ai/img_res/8e66e784dabd76df6f15a36c359be94a.jpg'
+    id: 'create-image',
+    label: '创建图文',
+    description: '快速创建新的图文作品,在作品管理进行发布',
+    icon: <ImageIcon className="size-5" />,
+    href: '/publish/create-article',
+    color: 'blue' as const
   },
   {
-    id: '3',
-    platform: '抖音',
-    platformColor: 'purple',
-    time: '1 天前',
-    content: 'Behind the scenes of our latest product photoshoot. #bts #productphotography',
-    metrics: { views: 12540, comments: 356, likes: 2156 },
-    image: 'https://ai-public.mastergo.com/ai/img_res/2690002600ca096f5c0dd5234b6f1df9.jpg'
-  },
-  {
-    id: '4',
-    platform: '微信',
-    platformColor: 'green',
-    time: '1 天前',
-    content: '行业专家分享数字化转型的最佳实践案例，不容错过！',
-    metrics: { views: 892, comments: 24, likes: 156 },
-    image: 'https://ai-public.mastergo.com/ai/img_res/094c83c800f2b824d0d021491327534b.jpg'
-  },
-  {
-    id: '5',
-    platform: '小红书',
-    platformColor: 'pink',
-    time: '2 天前',
-    content: '分享一些日常好物，提升生活品质💕',
-    metrics: { views: 3420, comments: 89, likes: 567 },
-    image: 'https://ai-public.mastergo.com/ai/img_res/53dbc71c3ee165ca1fb15d8a5ba05e09.jpg'
-  },
-  {
-    id: '6',
-    platform: '微博',
-    platformColor: 'red',
-    time: '3 天前',
-    content: '品牌营销的新趨势，你了解多少？',
-    metrics: { views: 2156, comments: 45, likes: 334 },
-    image: 'https://ai-public.mastergo.com/ai/img_res/c1d67fa560a2cd8c8c9f0f82f8831c3e.jpg'
+    id: 'create-video',
+    label: '创建视频',
+    description: '快速创建新的视频作品,在作品管理进行发布',
+    icon: <Video className="size-5" />,
+    href: '/publish/create-video',
+    color: 'purple' as const
   }
-]
-
-const trendingTopics = [
-  '#数字化转型',
-  '#AI技术',
-  '#用户体验',
-  '#品牌营销',
-  '#社交媒体'
-]
-
-const drafts = [
-  { id: 1, title: '新产品发布会预告', time: '昨天 15:30' },
-  { id: 2, title: '用户调研报告分享', time: '前天 10:15' }
 ]
 
 export default function HomePage() {
-  const [searchText, setSearchText] = useState('')
+  const router = useRouter()
+
+  const getColorClasses = (color: 'blue' | 'green' | 'purple' | 'pink') => {
+    const colorMap = {
+      blue: 'border-blue-500/30 bg-blue-950/30',
+      green: 'border-green-500/30 bg-green-950/30',
+      purple: 'border-purple-500/30 bg-purple-950/30',
+      pink: 'border-pink-500/30 bg-pink-950/30'
+    }
+    return colorMap[color] || ''
+  }
+
+  const getIconColor = (color: 'blue' | 'green' | 'purple' | 'pink') => {
+    const colorMap = {
+      blue: 'text-blue-400',
+      green: 'text-green-400',
+      purple: 'text-purple-400',
+      pink: 'text-pink-400'
+    }
+    return colorMap[color] || ''
+  }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 min-h-screen p-6">
-      <div className="flex flex-col gap-8">
-        {/* 数据概览区域 */}
-        <div>
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <h2 className="text-2xl font-bold mb-1">数据概览</h2>
-              <p className="text-sm text-muted-foreground">实时监控平台表现</p>
-            </div>
-            <Button variant="outline" size="sm">
-              <Filter className="size-4" />
-              <span>筛选</span>
-            </Button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-            {statsData.map((stat, index) => (
-              <Card key={index} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-1">{stat.title}</p>
-                      <h3 className="text-3xl font-bold mb-2">{stat.value}</h3>
-                      <p className={`text-sm ${stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
-                        {stat.change} 环比
-                      </p>
-                    </div>
-                    <div className="w-16 h-16 border-2 border-foreground rounded-lg flex items-center justify-center bg-muted/50">
-                      {stat.icon}
-                    </div>
-                  </div>
-                  <div className="h-12 mt-4">
-                    <div className="w-full h-full bg-gradient-to-r from-muted to-muted/50 rounded-md opacity-70"></div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
+    <div className="space-y-8">
+      {/* 页面标题 - 移到内容区域 */}
+      <div className="pt-2">
+        <h1 className="text-3xl font-bold text-foreground mb-2">数据仪表盘</h1>
+        <p className="text-sm text-foreground/70">2026-01-14, 星期三</p>
+      </div>
 
-        {/* 内容管理区域 */}
-        <div>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <h2 className="text-2xl font-bold">内容管理</h2>
-            <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-              <div className="relative flex-1 sm:flex-initial sm:max-w-[300px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="搜索内容..."
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Link href="/publish">
-                <Button size="lg" className="w-full sm:w-auto">
-                  <Plus className="size-4" />
-                  新建内容
-                </Button>
-              </Link>
-            </div>
-          </div>
-
-          {/* 内容网格 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {contentItems.map((item) => {
-              const platformColorMap: Record<string, string> = {
-                green: 'bg-green-500',
-                red: 'bg-red-500',
-                purple: 'bg-purple-500',
-                pink: 'bg-pink-500'
-              }
-              return (
-                <Card key={item.id} className="hover:shadow-md transition-all hover:-translate-y-1">
-                  <CardHeader className="pb-3">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded-full ${platformColorMap[item.platformColor] || 'bg-gray-500'}`}></div>
-                        <span className="text-sm font-semibold">{item.platform}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{item.time}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <p className="text-sm text-foreground line-clamp-2 mb-4">{item.content}</p>
-                    {item.image && (
-                      <div className="h-48 overflow-hidden rounded-md mb-4">
-                        <img src={item.image} alt={item.platform} className="w-full h-full object-cover" />
-                      </div>
+      {/* 数据概览卡片（FR-006） */}
+      <div>
+        <h2 className="text-lg font-semibold text-foreground mb-4">数据概览</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {overviewCards.map((card) => (
+            <Card 
+              key={card.id} 
+              className={`cursor-pointer hover:shadow-lg hover:border-opacity-50 transition-all border bg-card/50 ${getColorClasses(card.color)}`}
+              onClick={() => router.push(card.href)}
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <CardTitle className="text-sm font-medium text-foreground/90 mb-1">
+                      {card.title}
+                    </CardTitle>
+                    <CardDescription className="text-xs text-foreground/70 mb-2">
+                      {card.description}
+                    </CardDescription>
+                    {card.badge && (
+                      <Badge variant="secondary" className="text-xs">
+                        {card.badge}
+                      </Badge>
                     )}
-                  </CardContent>
-                  <CardFooter className="pt-0 flex justify-between border-t">
-                    <div className="flex gap-4 text-sm text-muted-foreground">
+                  </div>
+                  <div className={`${getIconColor(card.color)} shrink-0`}>
+                    {card.icon}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {card.metrics ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-4 text-xs text-foreground/70">
                       <span className="flex items-center gap-1">
-                        <Eye className="size-4" /> {item.metrics.views}
+                        <Eye className="size-3" /> {card.metrics.views}
                       </span>
                       <span className="flex items-center gap-1">
-                        <MessageCircle className="size-4" /> {item.metrics.comments}
+                        <MessageCircle className="size-3" /> {card.metrics.comments}
                       </span>
                       <span className="flex items-center gap-1">
-                        <ThumbsUp className="size-4" /> {item.metrics.likes}
+                        <Heart className="size-3" /> {card.metrics.likes}
                       </span>
                     </div>
-                    <Share2 className="size-4 text-muted-foreground" />
-                  </CardFooter>
-                </Card>
-              )
-            })}
-          </div>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-bold text-foreground">{card.value}</p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
 
-      {/* 右侧边栏 */}
-      <aside className="space-y-6">
-        {/* 热门话题 */}
-        <Card className="sticky top-6">
-          <CardHeader>
-            <CardTitle className="text-lg">热门话题</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-3">
-              {trendingTopics.map((topic, index) => (
-                <button
-                  key={index}
-                  className="w-full text-left p-3 bg-muted/50 border border-border rounded-md hover:bg-muted hover:border-foreground/20 transition-colors"
-                >
-                  <span className="text-sm font-semibold text-primary">{topic}</span>
-                  <p className="text-xs text-muted-foreground mt-1">1,245 条相关内容</p>
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 草稿箱 */}
-        <Card>
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle className="text-lg">草稿箱</CardTitle>
-              <button className="text-sm text-primary font-semibold hover:text-primary/80 transition-colors">
-                查看全部
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-3">
-              {drafts.map((draft) => (
-                <div
-                  key={draft.id}
-                  className="p-3 bg-muted/50 border border-border rounded-md hover:bg-muted hover:border-foreground/20 transition-colors cursor-pointer"
-                >
-                  <h4 className="text-sm font-semibold truncate">{draft.title}</h4>
-                  <p className="text-xs text-muted-foreground mt-1">{draft.time}</p>
+      {/* 快速创作入口（FR-007） */}
+      <div>
+        <h2 className="text-lg font-semibold text-foreground mb-4">快速创作</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {quickCreateActions.map((action) => (
+            <Card 
+              key={action.id}
+              className={`cursor-pointer hover:shadow-lg hover:border-opacity-50 transition-all border-2 bg-card/50 ${getColorClasses(action.color)}`}
+              onClick={() => router.push(action.href)}
+            >
+              <CardHeader>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`${getIconColor(action.color)}`}>
+                    {action.icon}
+                  </div>
+                  <CardTitle className="text-base font-semibold text-foreground">
+                    {action.label}
+                  </CardTitle>
                 </div>
-              ))}
+                <CardDescription className="text-xs text-foreground/70">
+                  {action.description}
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* 最近动态 */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground">最近动态</h2>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm">
+              刷新
+            </Button>
+            <Button variant="ghost" size="sm">
+              清空动态
+            </Button>
+          </div>
+        </div>
+        <Card className="bg-card/50">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3 text-sm text-foreground/90">
+              <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+              <span>作品数据同步未开启</span>
+              <span className="text-xs text-foreground/60">8分钟前</span>
             </div>
           </CardContent>
         </Card>
-      </aside>
+      </div>
     </div>
   )
 }
