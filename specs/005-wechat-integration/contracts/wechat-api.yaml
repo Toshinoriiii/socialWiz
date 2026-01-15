@@ -1,0 +1,325 @@
+openapi: 3.0.0
+info:
+  title: WeChat Official Account Platform Integration API
+  description: |
+    微信公众号平台集成API接口定义
+    基于微信公众平台 OAuth 2.0 API
+    注意：部分接口细节需要根据实际微信 API 文档调整
+  version: 1.0.0
+
+paths:
+  /api/platforms/wechat/auth:
+    get:
+      summary: 获取微信公众号OAuth授权URL
+      description: |
+        生成微信公众号OAuth授权URL，用户跳转到此URL完成授权
+        生成state参数用于CSRF防护，保存到Redis
+      operationId: getWechatAuthUrl
+      tags:
+        - WeChat Authentication
+      responses:
+        '200':
+          description: 授权URL和state参数
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - authUrl
+                  - state
+                properties:
+                  authUrl:
+                    type: string
+                    format: uri
+                    description: 微信公众号OAuth授权URL
+                    example: "https://open.weixin.qq.com/connect/oauth2/authorize?appid=xxx&redirect_uri=xxx&response_type=code&scope=snsapi_userinfo&state=xxx#wechat_redirect"
+                  state:
+                    type: string
+                    description: CSRF防护参数，需要保存到session/Redis
+                    example: "random-state-string-12345"
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/platforms/wechat/auth/callback:
+    get:
+      summary: 微信公众号OAuth回调处理
+      description: |
+        处理微信公众号OAuth回调，验证state参数，交换授权码获取token
+        获取用户信息，保存到PlatformAccount
+      operationId: handleWechatCallback
+      tags:
+        - WeChat Authentication
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 微信返回的授权码
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF防护参数，需要与请求时保存的state匹配
+      responses:
+        '200':
+          description: 授权成功，重定向到设置页面
+          headers:
+            Location:
+              description: 重定向到设置页面
+              schema:
+                type: string
+                example: "/dashboard/settings?platform=wechat&status=connected"
+        '400':
+          description: 授权失败（state不匹配、code无效等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/platforms/wechat/{platformAccountId}/publish:
+    post:
+      summary: 发布内容到微信公众号
+      description: |
+        发布内容到指定的微信公众号账号
+        内容会自动验证是否符合微信限制
+        支持纯文字、文字+图片、文字+视频
+        注意：具体接口和参数需要根据微信 API 文档调整
+      operationId: publishToWechat
+      tags:
+        - WeChat Publishing
+      parameters:
+        - name: platformAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 平台账号ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishContent'
+      responses:
+        '200':
+          description: 发布成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishResult'
+        '400':
+          description: 请求错误（内容不符合要求、Token过期等）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: 未授权（Token无效或过期）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 频率限制
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/platforms/wechat/{platformAccountId}/disconnect:
+    post:
+      summary: 断开微信公众号账号连接
+      description: |
+        断开指定的微信公众号账号连接
+        清除Token信息，标记账号为未连接状态
+      operationId: disconnectWechat
+      tags:
+        - WeChat Authentication
+      parameters:
+        - name: platformAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 平台账号ID
+      responses:
+        '200':
+          description: 断开连接成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '404':
+          description: 账号不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/platforms/wechat/{platformAccountId}/status:
+    get:
+      summary: 获取微信公众号账号状态
+      description: |
+        获取指定的微信公众号账号连接状态和基本信息
+      operationId: getWechatStatus
+      tags:
+        - WeChat Authentication
+      parameters:
+        - name: platformAccountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 平台账号ID
+      responses:
+        '200':
+          description: 账号状态信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountStatus'
+        '404':
+          description: 账号不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 服务器错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    PublishContent:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: 文字内容
+          example: "这是一条测试消息"
+        images:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: 图片URL数组（需要确认最多支持多少张）
+          example: ["https://example.com/image1.jpg"]
+        video:
+          type: string
+          format: uri
+          description: 视频URL（可选）
+          example: "https://example.com/video.mp4"
+        url:
+          type: string
+          format: uri
+          description: 分享链接（可选）
+          example: "https://example.com/article"
+
+    PublishResult:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: 是否发布成功
+          example: true
+        platformPostId:
+          type: string
+          description: 微信公众号消息ID（msg_id）
+          example: "1234567890"
+        publishedUrl:
+          type: string
+          format: uri
+          description: 发布链接（如果可用）
+          example: "https://mp.weixin.qq.com/s/xxx"
+        error:
+          type: string
+          description: 错误信息（如果失败）
+          example: "内容不符合平台规范"
+        errorCode:
+          type: string
+          description: 微信错误码（如果失败）
+          example: "87014"
+
+    AccountStatus:
+      type: object
+      required:
+        - isConnected
+      properties:
+        isConnected:
+          type: boolean
+          description: 是否已连接
+          example: true
+        platformUsername:
+          type: string
+          description: 微信公众号名称
+          example: "我的公众号"
+        platformUserId:
+          type: string
+          description: 微信公众号用户ID（openid）
+          example: "oUpF8uMuAJO_M2pxb1Q9zNjWeS6o"
+        tokenExpiry:
+          type: string
+          format: date-time
+          description: Token过期时间
+          example: "2025-02-01T12:00:00Z"
+        needsReauth:
+          type: boolean
+          description: 是否需要重新授权
+          example: false
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: 错误类型
+          example: "INVALID_TOKEN"
+        message:
+          type: string
+          description: 错误信息
+          example: "Token已过期，请重新授权"
+        details:
+          type: string
+          description: 详细错误信息（仅开发环境）
+          example: "Token expired at 2025-01-01T12:00:00Z"
