@@ -3,12 +3,10 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Mail, Lock, User } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card'
     
 export default function RegisterPage() {
@@ -81,127 +79,112 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-8">
-      <Card className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-6">
-            <div className="w-12 h-12 border-2 border-foreground rounded-lg flex items-center justify-center">
-              <span className="text-2xl font-bold text-foreground">S</span>
-            </div>
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-8">
+      <Card className="w-full max-w-sm bg-white border-gray-300 shadow-lg">
+        <div className="flex justify-center pt-6 pb-2">
+          <div className="w-16 h-16 border-2 border-black rounded-lg flex items-center justify-center">
+            <span className="text-3xl font-bold text-black">S</span>
           </div>
-          <CardTitle className="text-3xl font-bold mb-2">创建账户</CardTitle>
-          <CardDescription>开始使用 SocialWiz</CardDescription>
+        </div>
+        <CardHeader className="text-black">
+          <CardTitle className="text-black">创建账户</CardTitle>
+          <CardDescription className="text-gray-600">
+            开始使用 SocialWiz
+          </CardDescription>
         </CardHeader>
-
         <CardContent>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-            {errors.general && (
-              <Alert variant="destructive">
-                <AlertDescription>{errors.general}</AlertDescription>
-              </Alert>
-            )}
+          <form id="register-form" onSubmit={handleSubmit}>
+            <div className="flex flex-col gap-6">
+              {errors.general && (
+                <Alert variant="destructive" className="bg-red-50 border-red-200">
+                  <AlertDescription className="text-red-800">{errors.general}</AlertDescription>
+                </Alert>
+              )}
 
-            <div className="space-y-2">
-              <Label htmlFor="name">用户名</Label>
-              <InputGroup>
-                <InputGroupAddon>
-                  <User className="size-4" />
-                </InputGroupAddon>
-                <InputGroupInput
+              <div className="grid gap-2">
+                <Label htmlFor="name" className="text-black">用户名</Label>
+                <Input
                   id="name"
                   type="text"
                   placeholder="请输入用户名"
                   value={formData.name}
                   onChange={(e) => handleChange('name', e.target.value)}
                   aria-invalid={!!errors.name}
+                  className="bg-white border-gray-300 text-black placeholder:text-gray-400"
                   required
                 />
-              </InputGroup>
-              {errors.name && (
-                <p className="text-sm text-destructive">{errors.name}</p>
-              )}
-            </div>
+                {errors.name && (
+                  <p className="text-sm text-red-600">{errors.name}</p>
+                )}
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">邮箱</Label>
-              <InputGroup>
-                <InputGroupAddon>
-                  <Mail className="size-4" />
-                </InputGroupAddon>
-                <InputGroupInput
+              <div className="grid gap-2">
+                <Label htmlFor="email" className="text-black">邮箱</Label>
+                <Input
                   id="email"
                   type="email"
-                  placeholder="请输入邮箱"
+                  placeholder="m@example.com"
                   value={formData.email}
                   onChange={(e) => handleChange('email', e.target.value)}
                   aria-invalid={!!errors.email}
+                  className="bg-white border-gray-300 text-black placeholder:text-gray-400"
                   required
                 />
-              </InputGroup>
-              {errors.email && (
-                <p className="text-sm text-destructive">{errors.email}</p>
-              )}
-            </div>
+                {errors.email && (
+                  <p className="text-sm text-red-600">{errors.email}</p>
+                )}
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">密码</Label>
-              <InputGroup>
-                <InputGroupAddon>
-                  <Lock className="size-4" />
-                </InputGroupAddon>
-                <InputGroupInput
+              <div className="grid gap-2">
+                <Label htmlFor="password" className="text-black">密码</Label>
+                <Input
                   id="password"
                   type="password"
                   placeholder="请输入密码（至少8位，包含大小写字母和数字）"
                   value={formData.password}
                   onChange={(e) => handleChange('password', e.target.value)}
                   aria-invalid={!!errors.password}
+                  className="bg-white border-gray-300 text-black placeholder:text-gray-400"
                   required
                 />
-              </InputGroup>
-              {errors.password && (
-                <p className="text-sm text-destructive">{errors.password}</p>
-              )}
-            </div>
+                {errors.password && (
+                  <p className="text-sm text-red-600">{errors.password}</p>
+                )}
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">确认密码</Label>
-              <InputGroup>
-                <InputGroupAddon>
-                  <Lock className="size-4" />
-                </InputGroupAddon>
-                <InputGroupInput
+              <div className="grid gap-2">
+                <Label htmlFor="confirmPassword" className="text-black">确认密码</Label>
+                <Input
                   id="confirmPassword"
                   type="password"
                   placeholder="请再次输入密码"
                   value={formData.confirmPassword}
                   onChange={(e) => handleChange('confirmPassword', e.target.value)}
                   aria-invalid={!!errors.confirmPassword}
+                  className="bg-white border-gray-300 text-black placeholder:text-gray-400"
                   required
                 />
-              </InputGroup>
-              {errors.confirmPassword && (
-                <p className="text-sm text-destructive">{errors.confirmPassword}</p>
-              )}
+                {errors.confirmPassword && (
+                  <p className="text-sm text-red-600">{errors.confirmPassword}</p>
+                )}
+              </div>
             </div>
-
-            <Button
-              type="submit"
-              loading={loading}
-              size="lg"
-              className="w-full"
-            >
-              注册
-            </Button>
           </form>
         </CardContent>
-
-        <CardFooter className="flex justify-center">
-          <p className="text-sm text-muted-foreground">
-            已有账户？{' '}
-            <Link href="/login" className="text-primary font-semibold hover:text-primary/80 transition-colors">
-              立即登录
-            </Link>
+        <CardFooter className="flex-col gap-2">
+          <Button
+            type="submit"
+            form="register-form"
+            disabled={loading}
+            className="w-full bg-black text-white hover:bg-gray-800 disabled:bg-gray-400"
+          >
+            {loading ? '注册中...' : '注册'}
+          </Button>
+          <p className="text-sm text-gray-600 text-center">
+            已有账号？{' '}
+            <Button variant="link" asChild className="text-black hover:text-gray-700 p-0 h-auto font-normal underline">
+              <Link href="/login">去登录</Link>
+            </Button>
           </p>
         </CardFooter>
       </Card>

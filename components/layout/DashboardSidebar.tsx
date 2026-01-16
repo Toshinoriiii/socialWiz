@@ -205,10 +205,10 @@ export function DashboardSidebar() {
                 href="/home"
                 className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center"
               >
-                <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center font-bold text-lg text-white shrink-0 group-data-[collapsible=icon]:w-7 group-data-[collapsible=icon]:h-7">
+                <div className="w-8 h-8 border-2 border-black rounded-lg flex items-center justify-center font-bold text-lg text-black shrink-0 group-data-[collapsible=icon]:w-7 group-data-[collapsible=icon]:h-7">
                   S
                 </div>
-                <span className="font-bold text-lg text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+                <span className="font-bold text-lg text-black group-data-[collapsible=icon]:hidden">
                   SocialWiz
                 </span>
               </Link>

@@ -101,60 +101,41 @@ const quickCreateActions = [
 export default function HomePage() {
   const router = useRouter()
 
-  const getColorClasses = (color: 'blue' | 'green' | 'purple' | 'pink') => {
-    const colorMap = {
-      blue: 'border-blue-500/30 bg-blue-950/30',
-      green: 'border-green-500/30 bg-green-950/30',
-      purple: 'border-purple-500/30 bg-purple-950/30',
-      pink: 'border-pink-500/30 bg-pink-950/30'
-    }
-    return colorMap[color] || ''
-  }
-
-  const getIconColor = (color: 'blue' | 'green' | 'purple' | 'pink') => {
-    const colorMap = {
-      blue: 'text-blue-400',
-      green: 'text-green-400',
-      purple: 'text-purple-400',
-      pink: 'text-pink-400'
-    }
-    return colorMap[color] || ''
-  }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 bg-white min-h-screen p-6">
       {/* 页面标题 - 移到内容区域 */}
       <div className="pt-2">
-        <h1 className="text-3xl font-bold text-foreground mb-2">数据仪表盘</h1>
-        <p className="text-sm text-foreground/70">2026-01-14, 星期三</p>
+        <h1 className="text-3xl font-bold text-black mb-2">数据仪表盘</h1>
+        <p className="text-sm text-gray-600">2026-01-14, 星期三</p>
       </div>
 
       {/* 数据概览卡片（FR-006） */}
       <div>
-        <h2 className="text-lg font-semibold text-foreground mb-4">数据概览</h2>
+        <h2 className="text-lg font-semibold text-black mb-4">数据概览</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {overviewCards.map((card) => (
             <Card 
               key={card.id} 
-              className={`cursor-pointer hover:shadow-lg hover:border-opacity-50 transition-all border bg-card/50 ${getColorClasses(card.color)}`}
+              className="cursor-pointer hover:shadow-lg transition-all border border-gray-300 bg-white"
               onClick={() => router.push(card.href)}
             >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <CardTitle className="text-sm font-medium text-foreground/90 mb-1">
+                    <CardTitle className="text-sm font-medium text-black mb-1">
                       {card.title}
                     </CardTitle>
-                    <CardDescription className="text-xs text-foreground/70 mb-2">
+                    <CardDescription className="text-xs text-gray-600 mb-2">
                       {card.description}
                     </CardDescription>
                     {card.badge && (
-                      <Badge variant="secondary" className="text-xs">
+                      <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-700 border-gray-300">
                         {card.badge}
                       </Badge>
                     )}
                   </div>
-                  <div className={`${getIconColor(card.color)} shrink-0`}>
+                  <div className="text-black shrink-0">
                     {card.icon}
                   </div>
                 </div>
@@ -162,7 +143,7 @@ export default function HomePage() {
               <CardContent>
                 {card.metrics ? (
                   <div className="space-y-2">
-                    <div className="flex items-center gap-4 text-xs text-foreground/70">
+                    <div className="flex items-center gap-4 text-xs text-gray-600">
                       <span className="flex items-center gap-1">
                         <Eye className="size-3" /> {card.metrics.views}
                       </span>
@@ -175,7 +156,7 @@ export default function HomePage() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-2xl font-bold text-foreground">{card.value}</p>
+                  <p className="text-2xl font-bold text-black">{card.value}</p>
                 )}
               </CardContent>
             </Card>
@@ -185,24 +166,24 @@ export default function HomePage() {
 
       {/* 快速创作入口（FR-007） */}
       <div>
-        <h2 className="text-lg font-semibold text-foreground mb-4">快速创作</h2>
+        <h2 className="text-lg font-semibold text-black mb-4">快速创作</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {quickCreateActions.map((action) => (
             <Card 
               key={action.id}
-              className={`cursor-pointer hover:shadow-lg hover:border-opacity-50 transition-all border-2 bg-card/50 ${getColorClasses(action.color)}`}
+              className="cursor-pointer hover:shadow-lg transition-all border border-gray-300 bg-white"
               onClick={() => router.push(action.href)}
             >
               <CardHeader>
                 <div className="flex items-center gap-3 mb-2">
-                  <div className={`${getIconColor(action.color)}`}>
+                  <div className="text-black">
                     {action.icon}
                   </div>
-                  <CardTitle className="text-base font-semibold text-foreground">
+                  <CardTitle className="text-base font-semibold text-black">
                     {action.label}
                   </CardTitle>
                 </div>
-                <CardDescription className="text-xs text-foreground/70">
+                <CardDescription className="text-xs text-gray-600">
                   {action.description}
                 </CardDescription>
               </CardHeader>
@@ -214,22 +195,22 @@ export default function HomePage() {
       {/* 最近动态 */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground">最近动态</h2>
+          <h2 className="text-lg font-semibold text-black">最近动态</h2>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" className="text-black hover:bg-gray-100">
               刷新
             </Button>
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" className="text-black hover:bg-gray-100">
               清空动态
             </Button>
           </div>
         </div>
-        <Card className="bg-card/50">
+        <Card className="bg-white border border-gray-300">
           <CardContent className="p-6">
-            <div className="flex items-center gap-3 text-sm text-foreground/90">
-              <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+            <div className="flex items-center gap-3 text-sm text-black">
+              <div className="w-2 h-2 rounded-full bg-black"></div>
               <span>作品数据同步未开启</span>
-              <span className="text-xs text-foreground/60">8分钟前</span>
+              <span className="text-xs text-gray-600">8分钟前</span>
             </div>
           </CardContent>
         </Card>
