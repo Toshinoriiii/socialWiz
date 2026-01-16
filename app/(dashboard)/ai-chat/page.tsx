@@ -54,29 +54,18 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 
-const models = [
-  {
-    name: 'GPT 4o',
-    value: 'openai/gpt-4o',
-  },
-  {
-    name: 'Deepseek R1',
-    value: 'deepseek/deepseek-r1',
-  },
-];
-
 const quickSuggestions = [
-  '写一篇关于AI的文章',
-  '解释一下量子计算',
-  '帮我写一个Python函数',
-  '总结一下今天的新闻',
+  '北京天气怎么样？',
+  '上海今天适合做什么活动？',
+  '查询深圳的天气',
+  '帮我规划一下明天的活动',
 ];
 
 const ChatBotDemo = () => {
   const [input, setInput] = useState('');
-  const [model, setModel] = useState<string>(models[0].value);
-  const [webSearch, setWebSearch] = useState(false);
-  const { messages, sendMessage, status, regenerate } = useChat();
+  const { messages, sendMessage, status, regenerate } = useChat({
+    api: '/api/chat',
+  });
 
   const handleSubmit = (message: PromptInputMessage) => {
     const hasText = Boolean(message.text);
@@ -84,17 +73,13 @@ const ChatBotDemo = () => {
     if (!(hasText || hasAttachments)) {
       return;
     }
+
+    // 直接发送消息，API 会默认使用 Mastra agent
     sendMessage(
       { 
         text: message.text || 'Sent with attachments',
         files: message.files 
-      },
-      {
-        body: {
-          model: model,
-          webSearch: webSearch,
-        },
-      },
+      }
     );
     setInput('');
   };
@@ -246,31 +231,6 @@ const ChatBotDemo = () => {
                           <PromptInputActionAddAttachments />
                         </PromptInputActionMenuContent>
                       </PromptInputActionMenu>
-                      <PromptInputButton
-                        variant={webSearch ? 'default' : 'ghost'}
-                        onClick={() => setWebSearch(!webSearch)}
-                        className="transition-all duration-150"
-                      >
-                        <GlobeIcon size={16} />
-                        <span>搜索</span>
-                      </PromptInputButton>
-                      <PromptInputSelect
-                        onValueChange={(value) => {
-                          setModel(value);
-                        }}
-                        value={model}
-                      >
-                        <PromptInputSelectTrigger>
-                          <PromptInputSelectValue />
-                        </PromptInputSelectTrigger>
-                        <PromptInputSelectContent>
-                          {models.map((model) => (
-                            <PromptInputSelectItem key={model.value} value={model.value}>
-                              {model.name}
-                            </PromptInputSelectItem>
-                          ))}
-                        </PromptInputSelectContent>
-                      </PromptInputSelect>
                     </PromptInputTools>
                     <PromptInputSubmit disabled={!input && !status} status={status} />
                   </PromptInputFooter>
