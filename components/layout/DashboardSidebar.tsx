@@ -17,7 +17,8 @@ import {
   List,
   History,
   ChevronDown,
-  Sparkles
+  Sparkles,
+  Brain
 } from 'lucide-react'
 import {
   Sidebar,
@@ -58,6 +59,12 @@ const navItems: NavItem[] = [
         label: '数据概览',
         icon: <TrendingUp className="size-4" />,
         href: '/data-overview'
+      },
+      {
+        id: 'ai-analysis',
+        label: 'AI分析',
+        icon: <Brain className="size-4" />,
+        href: '/analytics/ai-analysis'
       }
     ]
   },

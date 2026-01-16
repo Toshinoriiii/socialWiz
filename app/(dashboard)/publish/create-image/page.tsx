@@ -30,10 +30,12 @@ export default function CreateImagePage() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const loadedRef = useRef<string | null>(null)
 
   // 如果是编辑模式，加载草稿内容
   useEffect(() => {
-    if (draftId && token) {
+    if (draftId && token && loadedRef.current !== draftId) {
+      loadedRef.current = draftId
       loadDraft(draftId)
     }
   }, [draftId, token])
@@ -55,7 +57,6 @@ export default function CreateImagePage() {
           setTitle(data.draft.title || '')
           setDescription(data.draft.description || '')
           setImages(data.draft.images || [])
-          toast.success('草稿加载成功')
         }
       } else {
         const error = await response.json()

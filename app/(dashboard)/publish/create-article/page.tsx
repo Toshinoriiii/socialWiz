@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card'
@@ -29,10 +29,12 @@ export default function CreateArticlePage() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
   const [previewMode, setPreviewMode] = useState<'edit' | 'live' | 'preview'>('edit')
+  const loadedRef = useRef<string | null>(null)
 
   // 如果是编辑模式，加载草稿内容
   useEffect(() => {
-    if (draftId && token) {
+    if (draftId && token && loadedRef.current !== draftId) {
+      loadedRef.current = draftId
       loadDraft(draftId)
     }
   }, [draftId, token])
