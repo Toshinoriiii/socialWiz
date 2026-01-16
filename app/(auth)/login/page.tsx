@@ -186,11 +186,11 @@ export default function LoginPage() {
             type="submit"
             form="login-form"
             disabled={loading}
-            className="w-full bg-black text-white hover:bg-gray-800 disabled:bg-gray-400"
+            className="w-full bg-black text-white hover:bg-gray-800 disabled:bg-gray-400 transition-all duration-150"
           >
             {loading ? '登录中...' : '登录'}
           </Button>
-          <Button variant="link" asChild className="text-black hover:text-gray-700">
+          <Button variant="link" asChild className="text-black hover:text-gray-700 transition-all duration-150">
             <Link href="/register">注册</Link>
           </Button>
         </CardFooter>

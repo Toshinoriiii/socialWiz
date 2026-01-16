@@ -16,7 +16,8 @@ import {
   Video,
   List,
   History,
-  ChevronDown
+  ChevronDown,
+  Sparkles
 } from 'lucide-react'
 import {
   Sidebar,
@@ -57,14 +58,14 @@ const navItems: NavItem[] = [
         label: '数据概览',
         icon: <TrendingUp className="size-4" />,
         href: '/data-overview'
-      },
-      {
-        id: 'content-analysis',
-        label: '内容分析',
-        icon: <FileText className="size-4" />,
-        href: '/analytics/content'
       }
     ]
+  },
+  {
+    id: 'ai-chat',
+    label: '智能创作',
+    icon: <Sparkles className="size-4" />,
+    href: '/ai-chat'
   },
   {
     id: 'publish',
@@ -73,16 +74,16 @@ const navItems: NavItem[] = [
     href: '/publish',
     children: [
       {
-        id: 'create-article',
+        id: 'create-image',
         label: '创建图文',
         icon: <ImageIcon className="size-4" />,
-        href: '/publish/create-article'
+        href: '/publish/create-image'
       },
       {
-        id: 'create-video',
-        label: '创建视频',
-        icon: <Video className="size-4" />,
-        href: '/publish/create-video'
+        id: 'create-article-md',
+        label: '创建文章',
+        icon: <FileText className="size-4" />,
+        href: '/publish/create-article'
       },
       {
         id: 'works-management',
@@ -303,14 +304,14 @@ export function DashboardSidebar() {
                         {activeFlyout === item.id && flyoutPosition && typeof window !== 'undefined' && createPortal(
                           <div 
                             ref={flyoutRef} 
-                            className="fixed z-[9999] pointer-events-auto"
+                            className="fixed z-[99999] pointer-events-auto"
                             style={{
                               left: `${flyoutPosition.left}px`,
                               top: `${flyoutPosition.top}px`
                             }}
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="min-w-[220px] rounded-lg border border-sidebar-border bg-sidebar text-sidebar-foreground p-2 shadow-2xl">
+                            <div className="min-w-[220px] rounded-lg border border-sidebar-border bg-sidebar text-sidebar-foreground p-2 shadow-2xl z-[99999]">
                               <div className="mb-2 px-1 text-xs font-semibold text-sidebar-foreground/80">
                                 {item.label}
                               </div>

@@ -176,13 +176,13 @@ export default function RegisterPage() {
             type="submit"
             form="register-form"
             disabled={loading}
-            className="w-full bg-black text-white hover:bg-gray-800 disabled:bg-gray-400"
+            className="w-full bg-black text-white hover:bg-gray-800 disabled:bg-gray-400 transition-all duration-150"
           >
             {loading ? '注册中...' : '注册'}
           </Button>
           <p className="text-sm text-gray-600 text-center">
             已有账号？{' '}
-            <Button variant="link" asChild className="text-black hover:text-gray-700 p-0 h-auto font-normal underline">
+            <Button variant="link" asChild className="text-black hover:text-gray-700 p-0 h-auto font-normal underline transition-all duration-150">
               <Link href="/login">去登录</Link>
             </Button>
           </p>

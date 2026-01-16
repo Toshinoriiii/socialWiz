@@ -85,16 +85,8 @@ const quickCreateActions = [
     label: '创建图文',
     description: '快速创建新的图文作品,在作品管理进行发布',
     icon: <ImageIcon className="size-5" />,
-    href: '/publish/create-article',
+    href: '/publish/create-image',
     color: 'blue' as const
-  },
-  {
-    id: 'create-video',
-    label: '创建视频',
-    description: '快速创建新的视频作品,在作品管理进行发布',
-    icon: <Video className="size-5" />,
-    href: '/publish/create-video',
-    color: 'purple' as const
   }
 ]
 
@@ -103,7 +95,7 @@ export default function HomePage() {
 
 
   return (
-    <div className="space-y-8 bg-white min-h-screen p-6">
+    <div className="space-y-6 md:space-y-8 bg-white p-4 md:p-6">
       {/* 页面标题 - 移到内容区域 */}
       <div className="pt-2">
         <h1 className="text-3xl font-bold text-black mb-2">数据仪表盘</h1>
@@ -117,7 +109,7 @@ export default function HomePage() {
           {overviewCards.map((card) => (
             <Card 
               key={card.id} 
-              className="cursor-pointer hover:shadow-lg transition-all border border-gray-300 bg-white"
+              className="cursor-pointer hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 border border-gray-300 bg-white"
               onClick={() => router.push(card.href)}
             >
               <CardHeader className="pb-3">
@@ -171,7 +163,7 @@ export default function HomePage() {
           {quickCreateActions.map((action) => (
             <Card 
               key={action.id}
-              className="cursor-pointer hover:shadow-lg transition-all border border-gray-300 bg-white"
+              className="cursor-pointer hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 border border-gray-300 bg-white"
               onClick={() => router.push(action.href)}
             >
               <CardHeader>
@@ -197,10 +189,10 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-black">最近动态</h2>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="text-black hover:bg-gray-100">
+            <Button variant="ghost" size="sm" className="text-black hover:bg-gray-100 transition-all duration-150">
               刷新
             </Button>
-            <Button variant="ghost" size="sm" className="text-black hover:bg-gray-100">
+            <Button variant="ghost" size="sm" className="text-black hover:bg-gray-100 transition-all duration-150">
               清空动态
             </Button>
           </div>

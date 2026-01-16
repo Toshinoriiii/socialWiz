@@ -103,4 +103,35 @@
   [role="button"] {
     cursor: pointer;
   }
+  
+  /* 为所有可点击元素添加平滑过渡效果 */
+  button,
+  a,
+  [role="button"],
+  [onclick],
+  .cursor-pointer {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+  }
+  
+  /* 链接的过渡效果 */
+  a {
+    transition-property: color, opacity, transform;
+  }
+  
+  /* 卡片点击效果 */
+  [class*="card"],
+  .card {
+    transition-property: transform, box-shadow, opacity;
+    transition-duration: 200ms;
+  }
+  
+  /* 输入框焦点过渡 */
+  input,
+  textarea,
+  select {
+    transition-property: border-color, background-color, box-shadow;
+    transition-duration: 150ms;
+  }
 }
