@@ -1,23 +1,92 @@
 # Data Model: 微博平台接入
 
 **Feature**: 003-weibo-integration  
-**Date**: 2025-01-13
+**Date**: 2025-01-13  
+**Updated**: 2026-01-17（架构变更：用户维度配置）
 
 ## Overview
 
-微博平台接入功能主要使用现有的 `PlatformAccount` 数据模型，扩展微博特定的字段和状态管理。同时需要实现微博适配器相关的类型定义和状态管理。
+微博平台接入功能采用**用户维度配置**架构，每个用户配置自己的微博应用凭证（APP_ID和APP_SECRET），存储在数据库中。主要涉及以下数据模型：
+
+1. **WeiboAppConfig**: 用户的微博应用配置（APP_ID、APP_SECRET）
+2. **PlatformAccount**: 用户连接的微博账号信息（OAuth授权后的token）
+3. **ContentPlatform**: 内容发布记录
+
+**架构要点**：
+- APP_ID 和 APP_SECRET 与用户ID绑定，存储在数据库中
+- 支持同一用户配置多个微博应用
+- 支持同一用户连接多个微博账号（使用不同的应用配置）
+- 数据完全隔离，每个用户只能访问自己的配置和账号
 
 ## Entities
 
+### WeiboAppConfig (微博应用配置) - **新增**
+
+**位置**: `prisma/schema.prisma` (需要新增)
+
+**描述**: 存储用户的微博应用凭证（APP_ID和APP_SECRET），**与用户维度绑定**
+
+**字段**:
+- `id: string` - 配置ID（UUID）
+- `userId: string` - **用户ID（关联User）- 关键字段**
+- `appId: string` - 微博 APP_ID（App Key，明文存储）
+- `appSecret: string` - 微博 APP_SECRET（App Secret，**加密存储**）
+- `appName: string?` - 应用名称（用户自定义，可选）
+- `callbackUrl: string` - OAuth回调地址
+- `isActive: boolean` - 是否激活（默认true）
+- `createdAt: DateTime` - 创建时间
+- `updatedAt: DateTime` - 更新时间
+
+**关系**:
+- 属于某个用户：`user: User` (many-to-one)
+- 可以被多个平台账号使用：`platformAccounts: PlatformAccount[]` (one-to-many)
+
+**验证规则**:
+- `appId` 必填，不能为空
+- `appSecret` 必填，必须加密存储（使用AES-256或类似算法）
+- `userId` + `appId` 组合应该唯一（同一用户不能重复添加同一个应用）
+- `callbackUrl` 必须是有效的URL格式
+
+**操作**:
+- 创建配置：用户输入APP_ID和APP_SECRET，系统验证后保存
+- 编辑配置：用户更新APP_ID或APP_SECRET
+- 删除配置：级联删除关联的PlatformAccount记录
+- 查询配置：用户只能查询自己的配置（通过userId过滤）
+
+**Prisma Schema**:
+```prisma
+model WeiboAppConfig {
+  id           String   @id @default(uuid())
+  userId       String
+  appId        String
+  appSecret    String   // 加密存储
+  appName      String?
+  callbackUrl  String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformAccounts PlatformAccount[]
+  
+  @@unique([userId, appId])
+  @@index([userId])
+  @@map("weibo_app_configs")
+}
+```
+
+---
+
 ### PlatformAccount (平台账号)
 
-**位置**: `prisma/schema.prisma` (已存在)
+**位置**: `prisma/schema.prisma` (已存在，需要扩展)
 
-**描述**: 存储用户连接的微博账号信息
+**描述**: 存储用户连接的微博账号信息（OAuth授权后获得的token）
 
 **字段**:
 - `id: string` - 平台账号 ID（UUID）
-- `userId: string` - 用户 ID（关联 User）
+- `userId: string` - **用户 ID（关联 User）**
+- `weiboAppConfigId: string?` - **关联的微博应用配置ID（外键到WeiboAppConfig）- 新增字段**
 - `platform: Platform` - 平台类型（WEIBO）
 - `platformUserId: string` - 微博用户 ID（uid）
 - `platformUsername: string` - 微博用户名（screen_name）
@@ -28,15 +97,48 @@
 - `createdAt: DateTime` - 创建时间
 - `updatedAt: DateTime` - 更新时间
 
+**关系**:
+- 属于某个用户：`user: User` (many-to-one)
+- **使用某个应用配置：`weiboAppConfig: WeiboAppConfig` (many-to-one) - 新增**
+- 有多个内容发布记录：`contentPlatforms: ContentPlatform[]` (one-to-many)
+
 **验证规则**:
-- `userId` 和 `platform` 组合必须唯一（一个用户只能连接一个微博账号）
+- `userId` + `platform` + `platformUserId` 组合应该唯一（同一用户不能重复连接同一个微博账号）
 - `accessToken` 必须加密存储
 - `tokenExpiry` 必须设置（测试应用1天，普通应用30天）
+- **`weiboAppConfigId` 必须关联到存在的WeiboAppConfig记录**
 
 **状态转换**:
 - `未连接` → `已连接`: 用户完成 OAuth 授权，保存 access_token
 - `已连接` → `需要重新授权`: token 过期或失效，标记 isConnected = false
 - `需要重新授权` → `已连接`: 用户重新授权，更新 token
+
+**Prisma Schema 更新**:
+```prisma
+model PlatformAccount {
+  id                 String    @id @default(uuid())
+  userId             String
+  weiboAppConfigId   String?   // 新增：关联到微博应用配置
+  platform           Platform
+  platformUserId     String
+  platformUsername   String
+  accessToken        String    // 加密存储
+  refreshToken       String?
+  tokenExpiry        DateTime?
+  isConnected        Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weiboAppConfig     WeiboAppConfig?    @relation(fields: [weiboAppConfigId], references: [id], onDelete: SetNull)
+  contentPlatforms   ContentPlatform[]
+  
+  @@unique([userId, platform, platformUserId])
+  @@index([userId])
+  @@index([weiboAppConfigId])
+  @@map("platform_accounts")
+}
+```
 
 ### WeiboTokenInfo (微博 Token 信息)
 

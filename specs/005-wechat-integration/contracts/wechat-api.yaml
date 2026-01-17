@@ -1,325 +1,549 @@
-openapi: 3.0.0
+openapi: 3.0.3
 info:
-  title: WeChat Official Account Platform Integration API
-  description: |
-    微信公众号平台集成API接口定义
-    基于微信公众平台 OAuth 2.0 API
-    注意：部分接口细节需要根据实际微信 API 文档调整
+  title: 微信公众号平台接入API
+  description: SocialWiz微信公众号配置管理和内容发布API
   version: 1.0.0
+  contact:
+    name: SocialWiz Team
+
+servers:
+  - url: http://localhost:3000/api
+    description: 本地开发环境
+  - url: https://your-domain.com/api
+    description: 生产环境
+
+tags:
+  - name: Config
+    description: 公众号配置管理
+  - name: Publish
+    description: 内容发布
 
 paths:
-  /api/platforms/wechat/auth:
+  /wechat/config:
     get:
-      summary: 获取微信公众号OAuth授权URL
-      description: |
-        生成微信公众号OAuth授权URL，用户跳转到此URL完成授权
-        生成state参数用于CSRF防护，保存到Redis
-      operationId: getWechatAuthUrl
       tags:
-        - WeChat Authentication
+        - Config
+      summary: 获取用户的所有微信公众号配置
+      description: 返回当前登录用户配置的所有微信公众号
+      security:
+        - bearerAuth: []
       responses:
         '200':
-          description: 授权URL和state参数
+          description: 成功获取配置列表
           content:
             application/json:
               schema:
                 type: object
-                required:
-                  - authUrl
-                  - state
                 properties:
-                  authUrl:
-                    type: string
-                    format: uri
-                    description: 微信公众号OAuth授权URL
-                    example: "https://open.weixin.qq.com/connect/oauth2/authorize?appid=xxx&redirect_uri=xxx&response_type=code&scope=snsapi_userinfo&state=xxx#wechat_redirect"
-                  state:
-                    type: string
-                    description: CSRF防护参数，需要保存到session/Redis
-                    example: "random-state-string-12345"
+                  configs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WechatConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '500':
-          description: 服务器错误
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/platforms/wechat/auth/callback:
-    get:
-      summary: 微信公众号OAuth回调处理
-      description: |
-        处理微信公众号OAuth回调，验证state参数，交换授权码获取token
-        获取用户信息，保存到PlatformAccount
-      operationId: handleWechatCallback
-      tags:
-        - WeChat Authentication
-      parameters:
-        - name: code
-          in: query
-          required: true
-          schema:
-            type: string
-          description: 微信返回的授权码
-        - name: state
-          in: query
-          required: true
-          schema:
-            type: string
-          description: CSRF防护参数，需要与请求时保存的state匹配
-      responses:
-        '200':
-          description: 授权成功，重定向到设置页面
-          headers:
-            Location:
-              description: 重定向到设置页面
-              schema:
-                type: string
-                example: "/dashboard/settings?platform=wechat&status=connected"
-        '400':
-          description: 授权失败（state不匹配、code无效等）
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '500':
-          description: 服务器错误
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/platforms/wechat/{platformAccountId}/publish:
+          $ref: '#/components/responses/ServerError'
+    
     post:
-      summary: 发布内容到微信公众号
-      description: |
-        发布内容到指定的微信公众号账号
-        内容会自动验证是否符合微信限制
-        支持纯文字、文字+图片、文字+视频
-        注意：具体接口和参数需要根据微信 API 文档调整
-      operationId: publishToWechat
       tags:
-        - WeChat Publishing
-      parameters:
-        - name: platformAccountId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: 平台账号ID
+        - Config
+      summary: 创建新的微信公众号配置
+      description: 添加新的微信公众号配置，系统会调用微信API验证appId和appSecret的有效性
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PublishContent'
+              $ref: '#/components/schemas/CreateWechatConfigRequest'
+      responses:
+        '201':
+          description: 配置创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config:
+                    $ref: '#/components/schemas/WechatConfig'
+                  message:
+                    type: string
+                    example: "配置验证成功并已保存"
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Invalid request"
+                details: "appId和appSecret不能为空"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: 配置已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Config already exists"
+                details: "该AppID的配置已存在"
+        '502':
+          description: 微信API调用失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WechatApiError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /wechat/config/{configId}:
+    get:
+      tags:
+        - Config
+      summary: 获取单个公众号配置
+      description: 获取指定ID的公众号配置详情
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: configId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 配置ID
+      responses:
+        '200':
+          description: 成功获取配置
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config:
+                    $ref: '#/components/schemas/WechatConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    
+    put:
+      tags:
+        - Config
+      summary: 更新公众号配置
+      description: 更新指定ID的公众号配置，如果修改了appSecret会重新验证
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: configId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 配置ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWechatConfigRequest'
+      responses:
+        '200':
+          description: 配置更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config:
+                    $ref: '#/components/schemas/WechatConfig'
+                  message:
+                    type: string
+                    example: "配置更新成功"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          description: 微信API验证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WechatApiError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    
+    delete:
+      tags:
+        - Config
+      summary: 删除公众号配置
+      description: 删除指定ID的公众号配置，同时清除相关的token缓存
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: configId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 配置ID
+      responses:
+        '200':
+          description: 配置删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "配置已删除"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /wechat/publish:
+    post:
+      tags:
+        - Publish
+      summary: 发布内容到微信公众号
+      description: 将内容发布到指定的微信公众号，系统会自动管理access_token
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishRequest'
       responses:
         '200':
           description: 发布成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PublishResult'
+                $ref: '#/components/schemas/PublishResponse'
         '400':
-          description: 请求错误（内容不符合要求、Token过期等）
+          description: 请求参数错误或内容不符合微信限制
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              examples:
+                invalidContent:
+                  value:
+                    error: "Invalid content"
+                    details: "文字内容超过20000字"
+                missingThumb:
+                  value:
+                    error: "Missing thumb_media_id"
+                    details: "封面图片media_id不能为空"
         '401':
-          description: 未授权（Token无效或过期）
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 无权限发布（个人主体公众号）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '429':
-          description: 频率限制
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '500':
-          description: 服务器错误
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/platforms/wechat/{platformAccountId}/disconnect:
-    post:
-      summary: 断开微信公众号账号连接
-      description: |
-        断开指定的微信公众号账号连接
-        清除Token信息，标记账号为未连接状态
-      operationId: disconnectWechat
-      tags:
-        - WeChat Authentication
-      parameters:
-        - name: platformAccountId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: 平台账号ID
-      responses:
-        '200':
-          description: 断开连接成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
+              example:
+                error: "Forbidden"
+                details: "个人主体公众号不支持发布功能，请升级为企业主体"
         '404':
-          description: 账号不存在
+          description: 配置不存在
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                error: "Config not found"
+                details: "指定的微信公众号配置不存在"
+        '502':
+          description: 微信API调用失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WechatApiError'
         '500':
-          description: 服务器错误
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/platforms/wechat/{platformAccountId}/status:
-    get:
-      summary: 获取微信公众号账号状态
-      description: |
-        获取指定的微信公众号账号连接状态和基本信息
-      operationId: getWechatStatus
-      tags:
-        - WeChat Authentication
-      parameters:
-        - name: platformAccountId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: 平台账号ID
-      responses:
-        '200':
-          description: 账号状态信息
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccountStatus'
-        '404':
-          description: 账号不存在
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '500':
-          description: 服务器错误
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/ServerError'
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Token，从登录接口获取
+
   schemas:
-    PublishContent:
+    WechatConfig:
       type: object
       required:
-        - text
+        - id
+        - userId
+        - appId
+        - accountName
+        - canPublish
+        - isActive
+        - createdAt
+        - updatedAt
       properties:
-        text:
+        id:
           type: string
-          description: 文字内容
-          example: "这是一条测试消息"
-        images:
-          type: array
-          items:
-            type: string
-            format: uri
-          description: 图片URL数组（需要确认最多支持多少张）
-          example: ["https://example.com/image1.jpg"]
-        video:
+          format: uuid
+          description: 配置ID
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        userId:
+          type: string
+          format: uuid
+          description: 用户ID
+          example: "12345678-1234-5678-1234-567812345678"
+        appId:
+          type: string
+          description: 微信公众号AppID（部分隐藏显示）
+          example: "wx1234****5678"
+        accountName:
+          type: string
+          description: 公众号名称
+          example: "测试公众号"
+        accountType:
+          type: string
+          enum: [subscription, service, enterprise]
+          description: 账号类型
+          example: "service"
+        subjectType:
+          type: string
+          enum: [personal, enterprise]
+          description: 主体类型
+          example: "enterprise"
+        canPublish:
+          type: boolean
+          description: 是否支持发布（企业主体为true）
+          example: true
+        isActive:
+          type: boolean
+          description: 是否激活
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          description: 创建时间
+          example: "2026-01-17T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: 更新时间
+          example: "2026-01-17T10:30:00Z"
+    
+    CreateWechatConfigRequest:
+      type: object
+      required:
+        - appId
+        - appSecret
+      properties:
+        appId:
+          type: string
+          description: 微信公众号AppID
+          example: "wx1234567890abcdef"
+        appSecret:
+          type: string
+          format: password
+          description: 微信公众号AppSecret
+          example: "a1b2c3d4e5f67890abcdef1234567890"
+        accountName:
+          type: string
+          description: 公众号名称（可选，系统会尝试自动获取）
+          example: "我的公众号"
+    
+    UpdateWechatConfigRequest:
+      type: object
+      properties:
+        appSecret:
+          type: string
+          format: password
+          description: 新的AppSecret（如果需要更新）
+          example: "new_secret_1234567890abcdef"
+        accountName:
+          type: string
+          description: 公众号名称
+          example: "更新后的公众号名称"
+        isActive:
+          type: boolean
+          description: 是否激活
+          example: true
+    
+    PublishRequest:
+      type: object
+      required:
+        - configId
+        - title
+        - content
+        - thumbMediaId
+      properties:
+        configId:
+          type: string
+          format: uuid
+          description: 微信公众号配置ID
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        title:
+          type: string
+          maxLength: 64
+          description: 文章标题
+          example: "这是一篇测试文章"
+        author:
+          type: string
+          description: 作者（可选）
+          example: "张三"
+        digest:
+          type: string
+          maxLength: 120
+          description: 摘要（可选）
+          example: "这是文章摘要"
+        content:
+          type: string
+          maxLength: 20000
+          description: 文章内容（支持HTML格式）
+          example: "<p>这是文章正文内容</p>"
+        contentSourceUrl:
           type: string
           format: uri
-          description: 视频URL（可选）
-          example: "https://example.com/video.mp4"
-        url:
+          description: 原文链接（可选）
+          example: "https://example.com/article/123"
+        thumbMediaId:
           type: string
-          format: uri
-          description: 分享链接（可选）
-          example: "https://example.com/article"
-
-    PublishResult:
+          description: 封面图片的media_id（必需）
+          example: "qI6_UzG3NQCbg33f1EH2X4ewIRHVtGPbW6LW_R7Vkn8"
+    
+    PublishResponse:
       type: object
       required:
         - success
       properties:
         success:
           type: boolean
-          description: 是否发布成功
+          description: 发布是否成功
           example: true
-        platformPostId:
+        mediaId:
           type: string
-          description: 微信公众号消息ID（msg_id）
-          example: "1234567890"
-        publishedUrl:
+          description: 微信返回的media_id
+          example: "qI6_UzG3NQCbg33f1EH2X4ewIRHVtGPbW6LW_R7Vkn8"
+        url:
           type: string
           format: uri
-          description: 发布链接（如果可用）
-          example: "https://mp.weixin.qq.com/s/xxx"
-        error:
+          description: 文章链接（如果有）
+          example: "https://mp.weixin.qq.com/s/xxxxxxxxxxxxxx"
+        message:
           type: string
-          description: 错误信息（如果失败）
-          example: "内容不符合平台规范"
-        errorCode:
-          type: string
-          description: 微信错误码（如果失败）
-          example: "87014"
-
-    AccountStatus:
-      type: object
-      required:
-        - isConnected
-      properties:
-        isConnected:
-          type: boolean
-          description: 是否已连接
-          example: true
-        platformUsername:
-          type: string
-          description: 微信公众号名称
-          example: "我的公众号"
-        platformUserId:
-          type: string
-          description: 微信公众号用户ID（openid）
-          example: "oUpF8uMuAJO_M2pxb1Q9zNjWeS6o"
-        tokenExpiry:
-          type: string
-          format: date-time
-          description: Token过期时间
-          example: "2025-02-01T12:00:00Z"
-        needsReauth:
-          type: boolean
-          description: 是否需要重新授权
-          example: false
-
+          description: 发布结果消息
+          example: "内容已成功发布到微信公众号"
+    
     Error:
       type: object
       required:
         - error
-        - message
       properties:
         error:
           type: string
           description: 错误类型
-          example: "INVALID_TOKEN"
-        message:
-          type: string
-          description: 错误信息
-          example: "Token已过期，请重新授权"
+          example: "Invalid request"
         details:
           type: string
-          description: 详细错误信息（仅开发环境）
-          example: "Token expired at 2025-01-01T12:00:00Z"
+          description: 错误详情
+          example: "appId不能为空"
+        code:
+          type: string
+          description: 错误代码（可选）
+          example: "VALIDATION_ERROR"
+    
+    WechatApiError:
+      type: object
+      required:
+        - error
+        - wechatErrorCode
+        - wechatErrorMsg
+      properties:
+        error:
+          type: string
+          description: 错误类型
+          example: "Wechat API Error"
+        wechatErrorCode:
+          type: integer
+          description: 微信错误码
+          example: 40001
+        wechatErrorMsg:
+          type: string
+          description: 微信错误消息
+          example: "invalid credential, access_token is invalid or not latest"
+        suggestion:
+          type: string
+          description: 解决建议
+          example: "请检查AppID和AppSecret是否正确"
+
+  responses:
+    Unauthorized:
+      description: 未认证
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Unauthorized"
+            details: "请先登录"
+    
+    Forbidden:
+      description: 无权访问
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Forbidden"
+            details: "您无权访问此资源"
+    
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Not Found"
+            details: "请求的资源不存在"
+    
+    BadRequest:
+      description: 请求参数错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Bad Request"
+            details: "请求参数格式不正确"
+    
+    ServerError:
+      description: 服务器内部错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Internal Server Error"
+            details: "服务器处理请求时发生错误"

@@ -35,6 +35,16 @@ export interface PublishContent {
   images?: string[]
   video?: string
   url?: string
+  // 微信特有字段
+  title?: string
+  author?: string
+  digest?: string
+  contentSourceUrl?: string
+  thumbImage?: {
+    buffer: Buffer
+    filename: string
+    contentType: string
+  }
 }
 
 /**

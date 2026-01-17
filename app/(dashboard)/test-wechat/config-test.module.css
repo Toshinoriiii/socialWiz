@@ -1,0 +1,440 @@
+﻿.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 24px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.titleSection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon {
+  font-size: 32px;
+  color: #09bb07;
+}
+
+.title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #262626;
+}
+
+.clearButton {
+  padding: 8px 16px;
+  background: #f5f5f5;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.clearButton:hover {
+  background: #e8e8e8;
+}
+
+.section {
+  margin-bottom: 32px;
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: #262626;
+  margin: 0 0 16px 0;
+}
+
+.userInfo {
+  background: #f5f5f5;
+  padding: 16px;
+  border-radius: 6px;
+}
+
+.userInfo p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #595959;
+}
+
+.addButton {
+  padding: 8px 16px;
+  background: #09bb07;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.addButton:hover {
+  background: #07a003;
+}
+
+.form {
+  background: #fafafa;
+  padding: 20px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  border: 1px solid #e8e8e8;
+}
+
+.formTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  color: #262626;
+}
+
+.formGroup {
+  margin-bottom: 16px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #595959;
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: all 0.3s;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #09bb07;
+  box-shadow: 0 0 0 2px rgba(9, 187, 7, 0.1);
+}
+
+.textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.3s;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 120px;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: #09bb07;
+  box-shadow: 0 0 0 2px rgba(9, 187, 7, 0.1);
+}
+
+.formActions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.submitButton {
+  padding: 10px 20px;
+  background: #09bb07;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s;
+}
+
+.submitButton:hover:not(:disabled) {
+  background: #07a003;
+}
+
+.submitButton:disabled {
+  background: #d9d9d9;
+  cursor: not-allowed;
+}
+
+.cancelButton {
+  padding: 10px 20px;
+  background: white;
+  color: #595959;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.cancelButton:hover {
+  background: #f5f5f5;
+}
+
+.configList {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.noConfigs {
+  text-align: center;
+  padding: 40px;
+  color: #8c8c8c;
+}
+
+.hint {
+  font-size: 14px;
+  color: #bfbfbf;
+  margin-top: 8px;
+}
+
+.configCard {
+  background: white;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 20px;
+  transition: all 0.3s;
+}
+
+.configCard:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.configHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.configName {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #262626;
+}
+
+.configActions {
+  display: flex;
+  gap: 8px;
+}
+
+.iconButton {
+  padding: 8px;
+  background: transparent;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  color: #595959;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconButton:hover {
+  background: #f5f5f5;
+  color: #262626;
+}
+
+.iconButton.danger {
+  color: #ff4d4f;
+  border-color: #ffccc7;
+}
+
+.iconButton.danger:hover {
+  background: #fff1f0;
+  border-color: #ff4d4f;
+}
+
+.configDetails {
+  display: grid;
+  gap: 8px;
+}
+
+.configRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  padding: 4px 0;
+}
+
+.configRow .label {
+  color: #8c8c8c;
+  font-weight: 500;
+}
+
+.configRow .value {
+  color: #262626;
+  font-weight: 400;
+}
+
+.value.success {
+  color: #52c41a;
+  font-weight: 500;
+}
+
+.value.warning {
+  color: #faad14;
+  font-weight: 500;
+}
+
+.value.error {
+  color: #ff4d4f;
+  font-weight: 500;
+}
+
+.editForm {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.refreshButton {
+  width: 100%;
+  padding: 10px;
+  background: white;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.refreshButton:hover:not(:disabled) {
+  background: #f5f5f5;
+  border-color: #09bb07;
+  color: #09bb07;
+}
+
+.refreshButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.logContainer {
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.noLogs {
+  text-align: center;
+  padding: 20px;
+  color: #bfbfbf;
+}
+
+.logItem {
+  background: white;
+  border-left: 3px solid #d9d9d9;
+  padding: 12px;
+  margin-bottom: 12px;
+  border-radius: 4px;
+}
+
+.logItem:last-child {
+  margin-bottom: 0;
+}
+
+.logItem.success {
+  border-left-color: #52c41a;
+}
+
+.logItem.error {
+  border-left-color: #ff4d4f;
+}
+
+.logHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.logTest {
+  font-weight: 600;
+  color: #262626;
+  flex: 1;
+}
+
+.logTime {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.logIcon {
+  font-size: 16px;
+}
+
+.logItem.success .logIcon {
+  color: #52c41a;
+}
+
+.logItem.error .logIcon {
+  color: #ff4d4f;
+}
+
+.logMessage {
+  font-size: 14px;
+  color: #595959;
+  line-height: 1.6;
+}
+
+.error {
+  color: #ff4d4f;
+  text-align: center;
+  padding: 20px;
+}
+
+.tokenInfo {
+  background: #f0f9ff;
+  border: 1px solid #91d5ff;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.tokenInfo .configRow {
+  margin-bottom: 8px;
+}
+
+.tokenInfo .configRow:last-child {
+  margin-bottom: 0;
+}

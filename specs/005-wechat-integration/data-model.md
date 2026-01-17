@@ -1,66 +1,146 @@
 # Data Model: 微信公众号平台接入
 
 **Feature**: 005-wechat-integration  
-**Date**: 2026-01-15
+**Date**: 2026-01-15  
+**Updated**: 2026-01-17（架构变更：用户维度配置）
 
 ## Overview
 
-微信公众号平台接入功能主要使用现有的 `PlatformAccount` 数据模型，扩展微信公众号特定的字段和状态管理。同时需要实现微信公众号适配器相关的类型定义和状态管理。
+微信公众号平台接入功能采用**用户维度配置**架构，每个用户配置自己的微信公众号凭证（AppID和Secret），存储在数据库中。主要涉及以下数据模型：
+
+1. **WechatAccountConfig**: 用户的微信公众号配置（AppID、Secret）
+2. **WechatAccessToken**: Access Token缓存（Redis）
+3. **ContentPlatform**: 内容发布记录
+
+**架构要点**：
+- AppID 和 Secret 与用户ID绑定，存储在数据库中
+- 支持同一用户配置多个微信公众号
+- 每个公众号的access_token独立管理，使用Redis缓存
+- 数据完全隔离，每个用户只能访问自己的配置
+- 由于个人开发者限制，采用手动配置方式，不使用OAuth
 
 ## Entities
 
-### PlatformAccount (平台账号)
+### WechatAccountConfig (微信公众号配置) - **新增**
 
-**位置**: `prisma/schema.prisma` (已存在)
+**位置**: `prisma/schema.prisma` (需要新增)
 
-**描述**: 存储用户连接的微信公众号账号信息
+**描述**: 存储用户的微信公众号凭证（AppID和Secret），**与用户维度绑定**
 
 **字段**:
-- `id: string` - 平台账号 ID（UUID）
-- `userId: string` - 用户 ID（关联 User）
-- `platform: Platform` - 平台类型（WECHAT）
-- `platformUserId: string` - 微信公众号用户 ID（openid）
-- `platformUsername: string` - 微信公众号名称（nickname）
-- `accessToken: string` - 访问令牌（加密存储）
-- `refreshToken: string?` - 刷新令牌（如果微信支持）
-- `tokenExpiry: DateTime?` - Token 过期时间
-- `isConnected: boolean` - 是否已连接（默认 true）
+- `id: string` - 配置ID（UUID）
+- `userId: string` - **用户ID（关联User）- 关键字段**
+- `appId: string` - 公众号AppID（明文存储）
+- `appSecret: string` - 公众号Secret（**加密存储**）
+- `accountName: string?` - 公众号名称（用户自定义或系统获取）
+- `accountType: string?` - 账号类型（订阅号/服务号/企业微信）
+- `subjectType: string?` - 主体类型（个人/企业）
+- `canPublish: boolean` - 是否支持发布（企业主体为true，默认false）
+- `isActive: boolean` - 是否激活（默认true）
 - `createdAt: DateTime` - 创建时间
 - `updatedAt: DateTime` - 更新时间
 
+**关系**:
+- 属于某个用户：`user: User` (many-to-one)
+- 有多个内容发布记录：`contentPlatforms: ContentPlatform[]` (one-to-many)
+
 **验证规则**:
-- `userId` 和 `platform` 组合必须唯一（一个用户只能连接一个微信公众号账号）
-- `accessToken` 必须加密存储
-- `tokenExpiry` 必须设置（需要调研微信 Token 有效期）
+- `appId` 必填，不能为空
+- `appSecret` 必填，必须加密存储（使用AES-256或类似算法）
+- `userId` + `appId` 组合应该唯一（同一用户不能重复添加同一个公众号）
 
-**状态转换**:
-- `未连接` → `已连接`: 用户完成 OAuth 授权，保存 access_token
-- `已连接` → `需要重新授权`: token 过期或失效，标记 isConnected = false
-- `需要重新授权` → `已连接`: 用户重新授权，更新 token
+**操作**:
+- 创建配置：用户手动输入AppID和Secret，系统调用`/cgi-bin/token`验证后保存
+- 编辑配置：用户更新AppID或Secret
+- 删除配置：级联删除关联的ContentPlatform记录，清除Redis中的token缓存
+- 查询配置：用户只能查询自己的配置（通过userId过滤）
 
-### WechatTokenInfo (微信公众号 Token 信息)
-
-**类型**: TypeScript 接口（临时数据结构）
-
-**位置**: `lib/platforms/wechat/wechat-types.ts`
-
-**描述**: 微信公众号 OAuth 返回的 Token 信息
-
-**字段**:
-```typescript
-interface WechatTokenInfo {
-  access_token: string
-  expires_in: number // 过期时间（秒）
-  refresh_token?: string // 如果微信支持
-  openid: string // 微信公众号用户 ID
-  scope?: string // 授权范围
+**Prisma Schema**:
+```prisma
+model WechatAccountConfig {
+  id              String   @id @default(uuid())
+  userId          String
+  appId           String
+  appSecret       String   // 加密存储
+  accountName     String?
+  accountType     String?  // subscription/service/enterprise
+  subjectType     String?  // personal/enterprise
+  canPublish      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentPlatforms ContentPlatform[]
+  
+  @@unique([userId, appId])
+  @@index([userId])
+  @@map("wechat_account_configs")
 }
 ```
 
-**转换逻辑**:
-- `expires_in` → `tokenExpiry`: `new Date(Date.now() + expires_in * 1000)`
-- `openid` → `platformUserId`
-- 需要调用用户信息接口获取 `nickname` → `platformUsername`
+---
+
+### PlatformAccount (平台账号) - **不再使用**
+
+**说明**: 微信公众号由于个人开发者限制，**不使用OAuth授权流程**，因此不需要`PlatformAccount`实体来存储OAuth token。
+
+**架构区别**：
+- **微博模式**：`WeiboAppConfig`（应用配置） + `PlatformAccount`（OAuth授权后token）
+- **微信公众号模式**：`WechatAccountConfig`（公众号配置 + 凭证），Access Token存储在Redis中
+
+**原因**：
+1. 微信公众号采用手动配置，用户直接提供AppID和Secret
+2. Access Token通过`/cgi-bin/token`接口直接获取，不需要OAuth流程
+3. Access Token有效期7200秒，缓存到Redis中，到期后自动刷新
+4. 一个公众号配置对应一个token，不需要存储多个平台账号
+
+---
+
+### WechatAccessToken (Access Token缓存) - **Redis**
+
+**位置**: Redis缓存
+
+**描述**: 微信公众号Access Token的缓存，有效期7200秒（2小时）
+
+**Key 格式**:
+```
+wechat:token:{userId}:{configId}
+```
+
+**值结构** (JSON):
+```typescript
+interface WechatAccessTokenCache {
+  accessToken: string      // access_token值
+  expiresAt: number        // 过期时间戳（毫秒）
+  appId: string            // 关联的AppID
+  userId: string           // 用户ID
+  configId: string         // 配置ID
+  createdAt: number        // 创建时间戳
+}
+```
+
+**TTL**: 7000秒（提前200秒过期，预留刷新时间）
+
+**操作**:
+- **获取Token**: 检查Redis缓存，如果存在且未过期则直接返回
+- **刷新Token**: 当剩余有效期<300秒时，调用`/cgi-bin/token`重新获取，更新缓存
+- **删除Token**: 当用户删除配置或配置失效时，清除对应的Redis缓存
+- **并发控制**: 使用分布式锁（`wechat:lock:{userId}:{configId}`）防止并发获取token
+
+**使用场景**:
+1. 用户发布内容时，先检查对应公众号的token缓存
+2. 如果token不存在或即将过期，则使用分布式锁获取新token
+3. token获取成功后，缓存到Redis并设置TTL
+4. 多个并发请求可以共享同一个token，避免重复获取
+
+**注意事项**:
+- 同一个公众号的access_token是唯一的，重复获取会导致之fore的token失效
+- 必须使用分布式锁确保同一时间只有一个请求获取token
+- 每个用户的每个公众号配置都有独立的token缓存
+- Token刷新建议提前5分钟进行，避免临界时间调用失败
+
+---
 
 ### WechatUserInfo (微信公众号用户信息)
 
@@ -139,24 +219,54 @@ interface PublishResult {
 
 ### ContentPlatform (内容平台关联)
 
-**位置**: `prisma/schema.prisma` (已存在)
+**位置**: `prisma/schema.prisma` (已存在，需要扩展)
 
 **描述**: 内容发布到平台的记录
 
 **字段**:
 - `id: string` - 记录 ID
 - `contentId: string` - 内容 ID
-- `platformAccountId: string` - 平台账号 ID
+- `wechatConfigId: string?` - **关联的微信公众号配置ID（外键到WechatAccountConfig）- 新增字段**
+- `platformAccountId: string?` - 平台账号ID（用于其他平台）
 - `platformContentId: string?` - 平台内容 ID（微信公众号消息 ID）
 - `publishStatus: PublishStatus` - 发布状态（PENDING/SUCCESS/FAILED）
 - `errorMessage: string?` - 错误信息
 - `publishedUrl: string?` - 发布链接
 - `createdAt: DateTime` - 创建时间
 
+**关系**:
+- 关联到内容：`content: Content` (many-to-one)
+- **关联到微信公众号配置：`wechatConfig: WechatAccountConfig` (many-to-one) - 新增**
+- 关联到其他平台账号：`platformAccount: PlatformAccount` (many-to-one, optional)
+
 **状态转换**:
 - `PENDING` → `SUCCESS`: 发布成功，保存 platformContentId 和 publishedUrl
 - `PENDING` → `FAILED`: 发布失败，保存 errorMessage
 - `SUCCESS` → `FAILED`: 发布后检测到错误（如内容被删除）
+
+**Prisma Schema 更新**:
+```prisma
+model ContentPlatform {
+  id                String        @id @default(uuid())
+  contentId         String
+  platformAccountId String?       // 用于其他平台（如微博）
+  wechatConfigId    String?       // 新增：用于微信公众号
+  platformContentId String?       // 微信公众号消息 ID
+  publishStatus     PublishStatus @default(PENDING)
+  errorMessage      String?
+  publishedUrl      String?
+  createdAt         DateTime      @default(now())
+  
+  content           Content              @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  platformAccount   PlatformAccount?     @relation(fields: [platformAccountId], references: [id], onDelete: Cascade)
+  wechatConfig      WechatAccountConfig? @relation(fields: [wechatConfigId], references: [id], onDelete: Cascade)
+  
+  @@index([contentId])
+  @@index([platformAccountId])
+  @@index([wechatConfigId])
+  @@map("content_platforms")
+}
+```
 
 ## Type Definitions
 

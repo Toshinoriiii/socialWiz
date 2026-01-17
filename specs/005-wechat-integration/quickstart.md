@@ -1,344 +1,392 @@
-# Quick Start: 微信公众号平台接入功能
+# Quickstart Guide: 微信公众号平台接入
 
 **Feature**: 005-wechat-integration  
-**Date**: 2026-01-15
+**Date**: 2026-01-17  
+**Target**: 开发者快速启动和测试微信公众号接入功能
 
-## 功能概述
+## 前提条件
 
-实现微信公众号平台的完整接入功能，包括：
-- OAuth 2.0 授权流程（连接微信公众号账号）
-- 内容发布到微信公众号（支持文字、图片、视频）
-- Token 过期检测和重新授权
-- 错误处理和重试机制
-- 测试页面验证功能
+### 1. 系统要求
 
-## 前置条件
+- Node.js 18+
+- PostgreSQL 14+
+- Redis 6+
+- pnpm包管理器
 
-### 1. 环境配置
+### 2. 微信测试账号
 
-1. **微信公众号平台账号**:
-   - **获取 AppID 和 AppSecret**:
-     - 访问 **微信公众平台**: https://mp.weixin.qq.com/
-     - 注册/登录账号（订阅号或服务号）
-     - 进入 **"开发"** → **"基本配置"**
-     - 复制 **AppID (应用ID)**
-     - 点击"生成"获取 **AppSecret (应用密钥)**，立即复制保存（页面关闭后无法再次查看）
-   - **配置 OAuth 回调地址**:
-     - 在"基本配置"页面，找到 **"授权回调页面域名"** 或 **"网页授权域名"**
-     - 添加你的域名（本地开发需要使用内网穿透工具，见下方说明）
-   - **本地开发配置**:
-     - 微信不支持 `localhost`，需要使用内网穿透工具
-     - 推荐使用 **ngrok**: https://ngrok.com/
-     - 启动命令：`ngrok http 3000`
-     - 使用 ngrok 提供的公网地址作为回调地址
-   - **详细配置指南**: 请参考 `WECHAT_CONFIG_GUIDE.md` 文件
+您需要一个微信公众号测试账号或正式公众号：
 
-2. **环境变量配置**:
-   在 `.env.local` 中添加：
-   ```bash
-   WECHAT_APP_ID=your_app_id
-   WECHAT_APP_SECRET=your_app_secret
-   WECHAT_REDIRECT_URI=http://localhost:3000/api/platforms/wechat/auth/callback
-   ```
+- **测试账号**（推荐用于开发）：[申请地址](https://mp.weixin.qq.com/debug/cgi-bin/sandbox?t=sandbox/login)
+- **正式公众号**：需要在微信公众平台注册
 
-3. **数据库和 Redis**:
-   - 确保 PostgreSQL 数据库已运行
-   - 确保 Redis 已运行（用于 OAuth state 存储）
-   - 运行数据库迁移：`pnpm prisma migrate dev`
+⚠️ **注意**：个人主体公众号不支持发布功能，仅企业主体支持。
 
-### 2. 启动应用
+## 快速启动（5分钟）
+
+### Step 1: 启动依赖服务
+
+确保 PostgreSQL 和 Redis 正在运行：
 
 ```bash
-# 安装依赖
+# 检查PostgreSQL
+psql -U postgres -c "SELECT version();"
+
+# 检查Redis
+redis-cli ping
+# 应返回: PONG
+```
+
+如果没有安装，请参考[环境配置文档](../../docs/GETTING_STARTED.md)。
+
+### Step 2: 数据库迁移
+
+```bash
+# 进入项目根目录
+cd c:\CodeField\socialwiz
+
+# 生成Prisma客户端
+pnpm db:generate
+
+# 推送Schema到数据库（开发环境）
+pnpm db:push
+
+# 或使用迁移（生产环境）
+# pnpm db:migrate
+```
+
+### Step 3: 配置环境变量
+
+复制并编辑`.env`文件：
+
+```bash
+# 复制示例文件
+cp .env.example .env
+```
+
+**必需配置**：
+
+```env
+# 数据库连接
+DATABASE_URL="postgresql://user:password@localhost:5432/socialwiz?schema=public"
+
+# Redis连接
+REDIS_URL="redis://localhost:6379"
+
+# JWT密钥
+JWT_SECRET="your-jwt-secret-key"
+
+# 加密密钥（用于加密AppSecret）
+ENCRYPTION_KEY="your-32-character-hex-key-here"
+```
+
+**生成加密密钥**：
+
+```bash
+# 使用Node.js生成32字节随机密钥
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### Step 4: 启动开发服务器
+
+```bash
+# 安装依赖（如果还没有安装）
 pnpm install
 
 # 启动开发服务器
 pnpm dev
 ```
 
-## 快速测试
+服务器将在 `http://localhost:3000` 启动。
 
-### 测试场景 1: 连接微信公众号账号
+### Step 5: 访问测试页面
 
-1. **登录 SocialWiz**:
-   - 访问 `http://localhost:3000/login`
-   - 使用有效账号登录
+打开浏览器访问：
 
-2. **进入设置页面**:
-   - 访问 `http://localhost:3000/dashboard/settings`
-   - 找到"连接微信公众号"按钮
+```
+http://localhost:3000/test-wechat
+```
 
-3. **发起授权**:
-   - 点击"连接微信公众号"按钮
-   - 系统跳转到微信授权页面
-   - 在微信页面完成授权
+## 配置微信公众号（10分钟）
 
-4. **验证结果**:
-   - ✅ 自动跳转回设置页面
-   - ✅ 显示"微信公众号已连接"状态
-   - ✅ 显示微信公众号名称
-   - ✅ 数据库 `PlatformAccount` 表中有新记录
+### Step 1: 获取AppID和AppSecret
 
-**API 测试**:
+1. 登录[微信公众平台](https://mp.weixin.qq.com/)或[测试账号页面](https://mp.weixin.qq.com/debug/cgi-bin/sandbox?t=sandbox/login)
+2. 进入"开发" → "基本配置"
+3. 记录以下信息：
+   - **AppID**（开发者ID）
+   - **AppSecret**（开发者密码）
+
+### Step 2: 配置IP白名单
+
+⚠️ **重要**：必须配置服务器IP白名单，否则无法调用微信API
+
+**获取本机公网IP**：
+
 ```bash
-# 获取授权URL
-curl http://localhost:3000/api/platforms/wechat/auth
+# Windows PowerShell
+(Invoke-WebRequest -Uri "https://api.ipify.org").Content
 
-# 响应示例
+# Linux/Mac
+curl https://api.ipify.org
+```
+
+**配置步骤**：
+
+1. 在微信公众平台，进入"开发" → "基本配置"
+2. 找到"IP白名单"，点击"修改"
+3. 添加您的公网IP地址（例如：123.456.789.012）
+4. 保存并生效
+
+### Step 3: 配置安全域名（可选）
+
+如果使用非localhost域名，需要配置安全域名：
+
+1. 在微信公众平台，进入"设置与开发" → "公众号设置" → "功能设置"
+2. 找到"JS接口安全域名"，点击"设置"
+3. 添加您的域名（例如：`your-domain.com`）
+4. 下载验证文件并上传到网站根目录
+
+## 测试流程（5分钟）
+
+### 1. 添加公众号配置
+
+在测试页面（http://localhost:3000/test-wechat）：
+
+1. 点击"添加微信公众号"按钮
+2. 填写表单：
+   - **AppID**: `wx1234567890abcdef`
+   - **AppSecret**: `a1b2c3d4e5f6...`
+   - **公众号名称**（可选）: `测试公众号`
+3. 点击"验证并保存"
+4. 等待验证结果（约1-2秒）
+
+**成功响应**：
+```json
 {
-  "authUrl": "https://open.weixin.qq.com/connect/oauth2/authorize?appid=xxx&...",
-  "state": "random-state-12345"
+  "config": {
+    "id": "a1b2c3d4-...",
+    "appId": "wx1234****cdef",
+    "accountName": "测试公众号",
+    "canPublish": true,
+    "isActive": true
+  },
+  "message": "配置验证成功并已保存"
 }
 ```
 
-### 测试场景 2: 发布内容到微信公众号
+### 2. 查看配置列表
 
-1. **创建内容**:
-   - 访问 `http://localhost:3000/dashboard/publish`
-   - 创建新内容（文字+图片）
-
-2. **发布到微信公众号**:
-   - 选择"微信公众号"平台
-   - 点击"发布"按钮
-
-3. **验证结果**:
-   - ✅ 发布成功提示
-   - ✅ 显示微信公众号消息ID或链接
-   - ✅ 数据库 `ContentPlatform` 表中有发布记录
-   - ✅ 实际微信公众号中可以看到发布的内容
-
-**API 测试**:
 ```bash
-# 发布内容
-curl -X POST http://localhost:3000/api/platforms/wechat/{platformAccountId}/publish \
+# 使用curl测试
+curl -X GET http://localhost:3000/api/wechat/config \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### 3. 测试Token获取
+
+Token由系统自动管理，您可以在Redis中查看：
+
+```bash
+# 连接Redis
+redis-cli
+
+# 查看所有微信token
+KEYS wechat:token:*
+
+# 查看特定token
+GET wechat:token:user123:config456
+```
+
+### 4. 测试内容发布（需要media_id）
+
+⚠️ **注意**：本次迭代仅支持纯文字，图片上传功能后续实现。
+
+```bash
+# 发布内容（需要先获取thumb_media_id）
+curl -X POST http://localhost:3000/api/wechat/publish \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "这是一条测试消息",
-    "images": ["https://example.com/image.jpg"]
+    "configId": "a1b2c3d4-...",
+    "title": "测试文章",
+    "author": "测试作者",
+    "content": "<p>这是测试内容</p>",
+    "thumbMediaId": "your_media_id_here"
   }'
-
-# 响应示例
-{
-  "success": true,
-  "platformPostId": "1234567890",
-  "publishedUrl": "https://mp.weixin.qq.com/s/xxx"
-}
-```
-
-### 测试场景 3: 测试页面验证
-
-1. **访问测试页面**:
-   - 访问 `http://localhost:3000/test/wechat`
-   - 查看测试页面界面
-
-2. **测试授权连接**:
-   - 点击"连接微信公众号"按钮
-   - 完成授权流程
-   - 验证连接状态显示
-
-3. **测试内容发布**:
-   - 输入测试内容
-   - 选择发布选项
-   - 点击"发布"按钮
-   - 查看发布结果和日志
-
-4. **测试错误场景**:
-   - 测试 Token 过期场景
-   - 测试内容验证失败场景
-   - 测试频率限制场景
-   - 查看错误提示和日志
-
-**测试页面功能**:
-- ✅ OAuth 授权连接测试
-- ✅ 内容发布测试
-- ✅ Token 状态查看
-- ✅ 账号信息查看
-- ✅ 错误场景测试
-- ✅ API 调用日志查看
-
-## 开发指南
-
-### 1. 代码结构
-
-```
-lib/platforms/wechat/
-├── wechat-adapter.ts      # 微信公众号适配器实现
-├── wechat-client.ts       # 微信公众号 API 客户端
-├── wechat-types.ts        # 微信公众号类型定义
-└── wechat-utils.ts        # 微信公众号工具函数
-
-app/api/platforms/wechat/
-├── auth/
-│   ├── route.ts           # 获取授权 URL
-│   └── callback/
-│       └── route.ts        # OAuth 回调处理
-└── [platformAccountId]/
-    ├── publish/
-    │   └── route.ts        # 发布接口
-    ├── disconnect/
-    │   └── route.ts        # 断开连接
-    └── status/
-        └── route.ts        # 获取状态
-
-app/test/wechat/
-└── page.tsx                # 测试页面
-```
-
-### 2. 实现步骤
-
-#### Step 1: 创建类型定义
-
-创建 `lib/platforms/wechat/wechat-types.ts`:
-```typescript
-export interface WechatTokenInfo {
-  access_token: string
-  expires_in: number
-  refresh_token?: string
-  openid: string
-  scope?: string
-}
-
-export interface WechatUserInfo {
-  openid: string
-  nickname: string
-  headimgurl?: string
-  // ...
-}
-```
-
-#### Step 2: 创建 API 客户端
-
-创建 `lib/platforms/wechat/wechat-client.ts`:
-```typescript
-export class WechatClient {
-  private appId: string
-  private appSecret: string
-  
-  async getAccessToken(code: string): Promise<WechatTokenInfo> {
-    // 实现获取 Token 逻辑
-  }
-  
-  async getUserInfo(accessToken: string, openid: string): Promise<WechatUserInfo> {
-    // 实现获取用户信息逻辑
-  }
-  
-  async publish(accessToken: string, content: PublishContent): Promise<PublishResult> {
-    // 实现发布内容逻辑
-  }
-}
-```
-
-#### Step 3: 实现适配器
-
-创建 `lib/platforms/wechat/wechat-adapter.ts`:
-```typescript
-export class WechatAdapter implements PlatformAdapter {
-  readonly platform = Platform.WECHAT
-  
-  async getAuthUrl(config: AuthConfig): Promise<string> {
-    // 实现生成授权 URL
-  }
-  
-  async exchangeToken(code: string, config: AuthConfig): Promise<TokenInfo> {
-    // 实现交换 Token
-  }
-  
-  async publish(token: string, content: PublishContent): Promise<PublishResult> {
-    // 实现发布内容
-  }
-  
-  // ... 其他方法
-}
-```
-
-#### Step 4: 创建 API 路由
-
-创建 `app/api/platforms/wechat/auth/route.ts`:
-```typescript
-export async function GET(request: NextRequest) {
-  // 生成授权 URL 和 state
-  // 返回授权 URL
-}
-```
-
-创建 `app/api/platforms/wechat/auth/callback/route.ts`:
-```typescript
-export async function GET(request: NextRequest) {
-  // 验证 state
-  // 交换 code 获取 token
-  // 获取用户信息
-  // 保存到数据库
-  // 重定向到设置页面
-}
-```
-
-#### Step 5: 创建测试页面
-
-创建 `app/test/wechat/page.tsx`:
-```typescript
-export default function WechatTestPage() {
-  // 实现测试页面 UI
-  // 包含授权连接、内容发布、状态查看等功能
-}
-```
-
-### 3. 集成到现有服务
-
-#### 更新 PublishService
-
-在 `lib/services/publish.service.ts` 中添加微信公众号支持：
-```typescript
-import { WechatAdapter } from '@/lib/platforms/wechat/wechat-adapter'
-
-// 在发布方法中添加微信公众号适配器
-const adapter = platformAdapters[Platform.WECHAT]
-if (adapter) {
-  // 调用适配器发布内容
-}
-```
-
-#### 更新平台适配器导出
-
-在 `lib/platforms/index.ts` 中导出微信公众号适配器：
-```typescript
-export { WechatAdapter } from './wechat/wechat-adapter'
-export * from './wechat/wechat-types'
 ```
 
 ## 常见问题
 
-### Q1: 微信公众号 OAuth 回调地址如何配置？
+### Q1: 配置验证失败，提示"40164: invalid ip"
 
-A: 在微信公众平台后台配置 OAuth 回调地址，本地开发需要使用内网穿透工具（如 ngrok）获取公网地址。
+**原因**: IP白名单未配置或配置错误
 
-### Q2: Token 过期如何处理？
+**解决**:
+1. 确认您的公网IP地址
+2. 在微信公众平台配置IP白名单
+3. 注意：必须配置**公网IP**，不能使用域名
 
-A: 需要调研微信是否支持 refresh_token。如果支持，实现自动刷新；如果不支持，检测到过期后引导用户重新授权。
+### Q2: 提示"40001: invalid credential"
 
-### Q3: 内容发布接口是什么？
+**原因**: AppID或AppSecret错误
 
-A: 需要根据微信 API 文档确认具体的发布接口。可能是群发消息接口或素材管理接口。
+**解决**:
+1. 检查AppID和AppSecret是否复制正确
+2. 确认没有多余的空格或换行
+3. 如果修改过AppSecret，需要重新配置
 
-### Q4: 测试页面在哪里？
+### Q3: Token获取成功，但发布失败"48001: api unauthorized"
 
-A: 测试页面位于 `app/test/wechat/page.tsx`，访问 `http://localhost:3000/test/wechat` 即可使用。
+**原因**: 个人主体公众号不支持发布功能
 
-### Q5: 如何查看 API 调用日志？
+**解决**:
+- 使用企业主体公众号
+- 或使用测试账号（测试账号支持所有接口）
 
-A: 测试页面提供日志查看功能，可以查看所有 API 调用和错误信息。
+### Q4: 如何查看详细的错误日志？
+
+开发模式下，错误日志会输出到控制台：
+
+```bash
+# 查看Next.js服务器日志
+# 在运行pnpm dev的终端查看
+```
+
+生产模式下，配置日志系统（如Winston）。
+
+### Q5: 如何测试Token自动刷新？
+
+**方法1：修改Redis TTL**
+
+```bash
+# 连接Redis
+redis-cli
+
+# 设置token为即将过期（剩余10秒）
+EXPIRE wechat:token:user123:config456 10
+
+# 等待10秒后调用API，系统会自动刷新token
+```
+
+**方法2：修改刷新阈值**
+
+在`lib/services/wechat-token.service.ts`中临时修改阈值：
+
+```typescript
+// 将300秒改为6000秒（测试用）
+const REFRESH_THRESHOLD = 6000 * 1000
+```
+
+## API测试集合
+
+### Postman/Thunder Client配置
+
+导入以下环境变量：
+
+```json
+{
+  "baseUrl": "http://localhost:3000/api",
+  "authToken": "your_jwt_token",
+  "userId": "your_user_id",
+  "configId": "your_config_id"
+}
+```
+
+### 测试场景
+
+**1. 创建配置**:
+- Method: `POST`
+- URL: `{{baseUrl}}/wechat/config`
+- Headers: `Authorization: Bearer {{authToken}}`
+- Body:
+  ```json
+  {
+    "appId": "wx1234567890abcdef",
+    "appSecret": "a1b2c3d4e5f67890...",
+    "accountName": "测试公众号"
+  }
+  ```
+
+**2. 获取配置列表**:
+- Method: `GET`
+- URL: `{{baseUrl}}/wechat/config`
+- Headers: `Authorization: Bearer {{authToken}}`
+
+**3. 更新配置**:
+- Method: `PUT`
+- URL: `{{baseUrl}}/wechat/config/{{configId}}`
+- Headers: `Authorization: Bearer {{authToken}}`
+- Body:
+  ```json
+  {
+    "accountName": "更新后的名称"
+  }
+  ```
+
+**4. 删除配置**:
+- Method: `DELETE`
+- URL: `{{baseUrl}}/wechat/config/{{configId}}`
+- Headers: `Authorization: Bearer {{authToken}}`
+
+## 调试技巧
+
+### 1. 启用详细日志
+
+在`lib/services/wechat-token.service.ts`中添加：
+
+```typescript
+console.log('[Token Service] Getting token for:', { userId, configId })
+console.log('[Token Service] Cache hit:', cacheHit)
+console.log('[Token Service] Token expires at:', expiresAt)
+```
+
+### 2. 监控Redis
+
+实时监控Redis命令：
+
+```bash
+# 开启Redis监控
+redis-cli MONITOR
+```
+
+### 3. 检查数据库
+
+使用Prisma Studio查看数据：
+
+```bash
+# 启动Prisma Studio
+pnpm db:studio
+
+# 打开浏览器访问 http://localhost:5555
+```
 
 ## 下一步
 
-1. **完成调研**: 确认微信公众号 API 的具体接口和参数
-2. **实现适配器**: 实现 WechatAdapter 和 WechatClient
-3. **创建 API 路由**: 实现 OAuth 和发布接口
-4. **创建测试页面**: 实现测试页面用于功能验证
-5. **编写测试**: 编写单元测试和集成测试
-6. **文档更新**: 更新 API 文档和用户文档
+- ✅ 完成基本配置和测试
+- ⏭️ 实现图片上传功能（获取media_id）
+- ⏭️ 实现完整的内容发布流程
+- ⏭️ 添加前端配置页面
+- ⏭️ 编写单元测试和集成测试
 
-## 参考资料
+## 参考文档
 
-- 微信公众平台文档: https://developers.weixin.qq.com/doc/
-- OAuth 2.0 规范: https://oauth.net/2/
-- 微博集成参考: `specs/003-weibo-integration/`
-- 技术架构文档: `docs/platform-integration/technical-plan/integration-architecture.md`
+- [微信公众号API文档](https://developers.weixin.qq.com/doc/offiaccount/Getting_Started/Overview.html)
+- [Feature规范](./spec.md)
+- [技术调研](./research.md)
+- [数据模型](./data-model.md)
+- [API契约](./contracts/wechat-api.yaml)
+- [配置指引](./WECHAT_CONFIG_GUIDE.md)
+
+## 需要帮助？
+
+如果遇到问题：
+
+1. 检查[常见问题](#常见问题)部分
+2. 查看控制台错误日志
+3. 参考[配置指引](./WECHAT_CONFIG_GUIDE.md)
+4. 联系开发团队
+
+---
+
+**Happy Coding! 🚀**

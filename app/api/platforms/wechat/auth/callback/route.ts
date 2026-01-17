@@ -18,27 +18,56 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error')
     const errorDescription = searchParams.get('error_description')
 
+    // 生成错误页面HTML（用于在新窗口中显示并关闭）
+    const createErrorPage = (errorMsg: string) => {
+      return new NextResponse(
+        `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>授权失败</title>
+</head>
+<body>
+  <script>
+    // 如果是在新窗口中打开的，关闭窗口并通知父窗口
+    if (window.opener) {
+      window.opener.postMessage({ 
+        type: 'wechat_auth_error', 
+        platform: 'wechat',
+        error: ${JSON.stringify(errorMsg)}
+      }, '*')
+      window.close()
+    } else {
+      window.location.href = '/dashboard/test-wechat?platform=wechat&status=error&error=${encodeURIComponent(errorMsg)}'
+    }
+  </script>
+  <p>授权失败：${errorMsg}</p>
+  <p>如果窗口没有自动关闭，请手动关闭。</p>
+</body>
+</html>`,
+        {
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+          },
+        }
+      )
+    }
+
     // 检查是否有错误
     if (error) {
       console.error('OAuth 回调错误:', error, errorDescription)
-      return NextResponse.redirect(
-        new URL(`/test/wechat?platform=wechat&status=error&error=${encodeURIComponent(errorDescription || error)}`, request.url)
-      )
+      return createErrorPage(errorDescription || error)
     }
 
     // 验证参数
     if (!code || !state) {
-      return NextResponse.redirect(
-        new URL('/test/wechat?platform=wechat&status=error&error=缺少必要参数', request.url)
-      )
+      return createErrorPage('缺少必要参数')
     }
 
     // 验证 state
     const stateData = await validateOAuthState(state, 'wechat')
     if (!stateData) {
-      return NextResponse.redirect(
-        new URL('/test/wechat?platform=wechat&status=error&error=State验证失败', request.url)
-      )
+      return createErrorPage('State验证失败')
     }
 
     // 获取配置
@@ -47,9 +76,7 @@ export async function GET(request: NextRequest) {
     const redirectUri = process.env.WECHAT_REDIRECT_URI || `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/platforms/wechat/auth/callback`
 
     if (!appId || !appSecret) {
-      return NextResponse.redirect(
-        new URL('/test/wechat?platform=wechat&status=error&error=微信公众号配置未设置', request.url)
-      )
+      return createErrorPage('微信公众号配置未设置')
     }
 
     // 创建适配器并交换 Token
@@ -68,9 +95,7 @@ export async function GET(request: NextRequest) {
     // 获取用户信息
     const openid = tokenInfo.openid
     if (!openid) {
-      return NextResponse.redirect(
-        new URL('/test/wechat?platform=wechat&status=error&error=无法获取用户ID', request.url)
-      )
+      return createErrorPage('无法获取用户ID')
     }
 
     const userInfo = await adapter.getUserInfo(tokenInfo.accessToken, openid)
@@ -114,17 +139,74 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // 重定向到测试页面（根据用户需求，在测试页面验证）
-    return NextResponse.redirect(
-      new URL('/test/wechat?platform=wechat&status=connected', request.url)
+    // 重定向到测试页面，并添加成功标识
+    // 如果是从新窗口打开的授权，这个重定向会在新窗口中完成
+    // 前端可以通过检测URL参数来关闭窗口并刷新父页面
+    const redirectUrl = new URL('/dashboard/test-wechat?platform=wechat&status=connected', request.url)
+    
+    // 返回一个包含关闭窗口脚本的HTML页面
+    return new NextResponse(
+      `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>授权成功</title>
+</head>
+<body>
+  <script>
+    // 如果是在新窗口中打开的，关闭窗口并通知父窗口
+    if (window.opener) {
+      // 通知父窗口授权成功
+      window.opener.postMessage({ type: 'wechat_auth_success', platform: 'wechat' }, '*')
+      // 关闭当前窗口
+      window.close()
+    } else {
+      // 如果不是新窗口，直接跳转
+      window.location.href = '${redirectUrl.toString()}'
+    }
+  </script>
+  <p>授权成功！如果窗口没有自动关闭，请手动关闭。</p>
+</body>
+</html>`,
+      {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+        },
+      }
     )
   } catch (error) {
     console.error('OAuth 回调处理失败:', error)
-    return NextResponse.redirect(
-      new URL(
-        `/test/wechat?platform=wechat&status=error&error=${encodeURIComponent(error instanceof Error ? error.message : '授权失败')}`,
-        request.url
-      )
+    const errorMsg = error instanceof Error ? error.message : '授权失败'
+    return new NextResponse(
+      `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>授权失败</title>
+</head>
+<body>
+  <script>
+    // 如果是在新窗口中打开的，关闭窗口并通知父窗口
+    if (window.opener) {
+      window.opener.postMessage({ 
+        type: 'wechat_auth_error', 
+        platform: 'wechat',
+        error: ${JSON.stringify(errorMsg)}
+      }, '*')
+      window.close()
+    } else {
+      window.location.href = '/dashboard/test-wechat?platform=wechat&status=error&error=${encodeURIComponent(errorMsg)}'
+    }
+  </script>
+  <p>授权失败：${errorMsg}</p>
+  <p>如果窗口没有自动关闭，请手动关闭。</p>
+</body>
+</html>`,
+      {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+        },
+      }
     )
   }
 }

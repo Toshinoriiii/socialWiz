@@ -1,159 +1,313 @@
-# 微信公众号配置获取指南
+﻿# 微信公众号手动配置指南
 
-## 获取 AppID 和 AppSecret
+## 重要说明
 
-### 步骤 1: 访问微信公众平台
+由于本项目是个人开发者运营，**无法实现标准的OAuth授权流程**。用户需要手动配置微信公众号的AppID和Secret来接入平台。
+
+## 技术限制说明
+
+### 为什么不能使用OAuth授权?
+
+1. **个人开发者限制**：个人开发者无法在自己的网站中唤起微信公众号的OAuth授权流程
+2. **企业资质要求**：OAuth授权需要在微信开放平台注册网站应用,需要企业认证和备案域名
+3. **替代方案**：采用手动配置方式,用户直接提供公众号的AppID和Secret
+
+### 账号类型限制
+
+- **个人主体公众号**：不支持发布功能,只能获取信息
+- **企业主体公众号**：支持完整的发布功能
+
+请在配置前确认您的公众号主体类型。
+
+## 配置步骤总览
+
+1. ✅ 获取微信公众号的AppID和Secret
+2. ✅ 配置IP白名单（必需）
+3. ✅ 配置安全域名（推荐）
+4. ✅ 在SocialWiz中添加公众号配置
+5. ✅ 测试配置是否正常工作
+
+## 步骤1：获取公众号 AppID 和 AppSecret
+
+### 1.1 登录微信公众平台
 
 **网站地址**: https://mp.weixin.qq.com/
 
-### 步骤 2: 注册/登录账号
+### 1.2 查看AppID
 
-1. 如果没有账号，点击"立即注册"
-2. 选择账号类型：
-   - **订阅号**：个人和企业都可以注册，功能相对受限
-   - **服务号**：仅企业可以注册，需要企业认证，功能更强大
-   - **企业号**：企业微信相关
-3. 完成注册流程（需要邮箱、手机号验证等）
+1. 登录后进入"开发" → "基本配置"
+2. 在页面顶部可以看到 **AppID(应用ID)**
+3. 复制并保存该AppID
 
-### 步骤 3: 登录并进入开发设置
+### 1.3 获取AppSecret
 
-1. 登录微信公众平台后台
-2. 在左侧菜单中找到 **"开发"** → **"基本配置"**
-3. 或者直接访问：https://mp.weixin.qq.com/cgi-bin/callback?name=homepage&token=&lang=zh_CN
+1. 在同一页面找到 **AppSecret(应用密钥)**
+2. 如果未设置,点击"生成"按钮
+3. **重要**：生成后立即复制保存,关闭页面后将无法再次查看
+4. 如果忘记,需要点击"重置"（重置后旧密钥将失效）
 
-### 步骤 4: 获取 AppID 和 AppSecret
+### 1.4 确认公众号主体类型
 
-1. **AppID (应用ID)**:
-   - 在"基本配置"页面中，可以看到 **"AppID(应用ID)"**
-   - 直接复制即可
+1. 进入"设置与开发" → "公众号设置" → "账号详情"
+2. 查看"主体信息"部分,确认是"个人"还是"企业"
+3. **重要提示**：
+   - 个人主体：无法使用发布功能
+   - 企业主体：支持完整发布功能
 
-2. **AppSecret (应用密钥)**:
-   - 在"基本配置"页面中，找到 **"AppSecret(应用密钥)"**
-   - 如果未设置，点击"生成"按钮生成新的密钥
-   - **重要**: 生成后立即复制保存，页面关闭后将无法再次查看
-   - 如果忘记，需要重置（重置后旧的密钥将失效）
+---
 
-### 步骤 5: 配置服务器和 OAuth 回调地址
+## 步骤2：配置IP白名单（必需）
 
-1. **服务器配置**（如果需要）:
-   - 在"基本配置"页面中，找到"服务器配置"
-   - 配置服务器 URL 和 Token（用于接收微信消息）
+微信公众号API要求调用接口的服务器IP必须在白名单中。
 
-2. **OAuth 回调地址配置**:
-   - 在"基本配置"页面中，找到 **"授权回调页面域名"** 或 **"网页授权域名"**
-   - 添加你的域名（例如：`your-domain.com`）
-   - **注意**: 
-     - 本地开发可以使用内网穿透工具（如 ngrok）获取公网地址
-     - 回调地址格式：`http://your-domain.com/api/platforms/wechat/auth/callback`
-     - 微信不支持 `localhost`，必须使用域名
+### 2.1 获取服务器IP地址
 
-### 步骤 6: 配置环境变量
-
-在项目的 `.env.local` 文件中添加以下配置：
-
+**本地开发**：
 ```bash
-# 微信公众号配置
-WECHAT_APP_ID=你的AppID
-WECHAT_APP_SECRET=你的AppSecret
-WECHAT_REDIRECT_URI=http://your-domain.com/api/platforms/wechat/auth/callback
+# Windows PowerShell
+(Invoke-WebRequest -Uri "https://api.ipify.org").Content
+
+# 或访问网站
+# https://www.whatismyip.com/
 ```
 
-**本地开发示例**（使用 ngrok）:
-```bash
-# 启动 ngrok
-ngrok http 3000
+**生产环境**：
+- 使用云服务器提供的公网IP
+- 注意：如果使用负载均衡,需要添加所有服务器的IP
 
-# 使用 ngrok 提供的公网地址（例如：https://abc123.ngrok-free.app）
-WECHAT_APP_ID=wx1234567890abcdef
-WECHAT_APP_SECRET=your_secret_key_here
-WECHAT_REDIRECT_URI=https://abc123.ngrok-free.app/api/platforms/wechat/auth/callback
+### 2.2 在微信公众号后台配置
+
+1. 登录微信公众平台 https://mp.weixin.qq.com/
+2. 进入"开发" → "基本配置"
+3. 找到"IP白名单"部分,点击"修改"
+4. 添加您的服务器IP地址
+5. 点击"确定"保存
+
+**重要提示**：
+- IP白名单最多可配置200个
+- 未配置白名单会导致API调用返回错误40164
+- IP地址变更后需要及时更新白名单
+
+---
+
+## 步骤3：配置安全域名（推荐）
+
+安全域名用于JS-SDK等功能,建议配置以支持未来功能扩展。
+
+### 3.1 在微信公众号后台配置
+
+1. 进入"设置与开发" → "公众号设置" → "功能设置"
+2. 找到"JS接口安全域名",点击"设置"
+3. 按照提示下载验证文件（如：MP_verify_xxx.txt）
+4. 将验证文件放到您网站的根目录（Next.js项目放在`public`目录）
+5. 确保可以通过 `https://your-domain.com/MP_verify_xxx.txt` 访问
+6. 在微信后台填入域名（只填域名,不包含http://或https://）
+7. 点击"确定"完成验证
+
+**本地开发示例**（使用Localtunnel）：
+```bash
+# 1. 将验证文件放到 public 目录
+cp MP_verify_xxx.txt public/
+
+# 2. 启动开发服务器
+pnpm dev
+
+# 3. 启动内网穿透
+npx localtunnel --port 3000 --subdomain socialwiz-dev
+
+# 4. 访问验证：https://socialwiz-dev.loca.lt/MP_verify_xxx.txt
+# 5. 在微信后台填入：socialwiz-dev.loca.lt
 ```
 
-## 重要注意事项
+---
 
-### 1. 账号类型限制
+## 步骤4：在SocialWiz中添加配置
 
-- **订阅号**: 
-  - 个人订阅号功能受限，不支持高级接口
-  - 企业订阅号需要认证后才能使用更多功能
-  
-- **服务号**:
-  - 需要企业认证（需要营业执照等）
-  - 认证后可以使用更多高级接口
-  - 支持 OAuth 2.0 网页授权
+### 4.1 登录SocialWiz
 
-### 2. 开发者认证
+访问您的SocialWiz应用并登录账号。
 
-- 某些高级接口需要完成开发者认证
-- 认证可能需要提交相关资质文件
-- 认证通过后才能使用完整的 API 功能
+### 4.2 添加微信公众号
 
-### 3. 测试账号（推荐用于开发测试）
+1. 进入"设置" → "平台管理"
+2. 点击"添加微信公众号"
+3. 在配置表单中填入：
+   - **AppID**：您在步骤1中获取的AppID
+   - **AppSecret**：您在步骤1中获取的Secret
+   - **公众号名称**：可选,用于标识（系统会自动获取）
+4. 点击"验证并保存"
 
-如果不想使用正式账号，可以使用**微信公众平台测试账号**：
+### 4.3 系统验证
 
-1. 访问：https://mp.weixin.qq.com/debug/cgi-bin/sandbox?t=jsapisign
-2. 使用微信扫码登录
-3. 获取测试账号的 AppID 和 AppSecret
-4. 测试账号功能完整，适合开发测试
+系统会自动：
+1. 使用提供的AppID和Secret调用微信API获取access_token
+2. 获取公众号基本信息（名称、类型、主体类型）
+3. 检测公众号是否支持发布功能
 
-### 4. 内网穿透工具（本地开发）
+**验证成功**：
+- 显示公众号名称、类型、主体类型
+- 如果是企业主体,显示"支持发布功能"
+- 配置保存成功
 
-由于微信不支持 `localhost`，本地开发需要使用内网穿透：
+**验证失败**：
+- 显示具体错误原因和解决方案
+- 常见错误：
+  - **40001**：AppSecret错误,请检查配置
+  - **40164**：IP白名单未配置,请返回步骤2配置
+  - **其他错误**：参考错误码说明
 
-**推荐工具**:
-- **ngrok**: https://ngrok.com/ （免费版可用）
-- **localtunnel**: https://localtunnel.github.io/www/ （免费开源）
-- **serveo**: https://serveo.net/ （免费，无需安装）
+---
 
-**ngrok 使用示例**:
-```bash
-# 安装 ngrok
-brew install ngrok  # macOS
-# 或下载：https://ngrok.com/download
+## 步骤5：测试配置
 
-# 启动本地服务器
-pnpm dev  # 在 3000 端口
+### 5.1 访问测试页面
 
-# 在另一个终端启动 ngrok
-ngrok http 3000
+1. 访问 `/test/wechat` 测试页面
+2. 查看配置信息是否正确显示
+3. 查看access_token是否已获取
 
-# 会显示类似：
-# Forwarding  https://abc123.ngrok-free.app -> http://localhost:3000
-# 使用这个 https://abc123.ngrok-free.app 作为回调地址
-```
+### 5.2 测试发布功能
+
+1. 在测试页面输入一段测试文字
+2. 点击"发布到微信"
+3. 查看发布结果
+
+**个人主体公众号**：
+- 会提示不支持发布功能
+- 建议升级为企业主体
+
+**企业主体公众号**：
+- 发布成功会显示文章链接
+- 可以在微信公众号后台查看草稿
+
+---
+
+## 微信公众号API调用机制
+
+### Access Token机制
+
+微信公众号的大多数API接口都需要传入`access_token`参数：
+
+1. **获取access_token**：
+   - 接口：`GET https://api.weixin.qq.com/cgi-bin/token`
+   - 参数：
+     - `grant_type=client_credential`
+     - `appid=你的AppID`
+     - `secret=你的Secret`
+   - 返回：`{"access_token":"xxx", "expires_in":7200}`
+   - 有效期：7200秒（2小时）
+
+2. **使用access_token**：
+   - 所有业务API都需要在请求中附带access_token
+   - 例如：`POST https://api.weixin.qq.com/cgi-bin/draft/add?access_token=xxx`
+
+3. **Token刷新策略**：
+   - 每个公众号的access_token是唯一的
+   - 重复获取会导致上次的token失效
+   - **重要**：需要实现中控服务器统一管理token
+   - 建议提前5分钟刷新token,避免临界时间调用失败
+
+### SocialWiz的Token管理
+
+SocialWiz已实现智能token管理：
+
+1. **缓存机制**：token存储在Redis中,避免频繁调用API
+2. **过期检测**：每次API调用前检查token是否即将过期
+3. **自动刷新**：剩余有效期少于5分钟时自动刷新
+4. **分布式锁**：使用Redis锁防止并发获取token导致失效
+5. **错误处理**：token失效时自动重新获取
+
+---
+
+## 常见错误处理
+
+### 错误码对照表
+
+| 错误码 | 错误说明 | 解决方案 |
+|--------|----------|----------|
+| 40001 | AppSecret错误 | 检查配置中的Secret是否正确 |
+| 40013 | AppID无效 | 检查配置中的AppID是否正确 |
+| 40164 | IP白名单未配置 | 在微信后台配置服务器IP到白名单 |
+| 41001 | 缺少access_token | 系统会自动重新获取 |
+| 42001 | access_token过期 | 系统会自动刷新token |
+| 48001 | API功能未授权 | 公众号主体类型限制,个人主体无法使用发布功能 |
+| 45009 | 接口调用超过限制 | 降低调用频率,等待限制解除 |
+
+### 排查步骤
+
+1. **检查AppID和Secret**：
+   - 确认复制时没有多余空格
+   - 确认Secret未过期或被重置
+
+2. **检查IP白名单**：
+   - 确认服务器IP已添加到白名单
+   - IP地址变更后及时更新
+
+3. **检查账号类型**：
+   - 确认是个人还是企业主体
+   - 个人主体无法使用发布功能
+
+4. **查看系统日志**：
+   - 在测试页面查看详细错误信息
+   - 根据错误码查找解决方案
+
+---
 
 ## 配置检查清单
 
-- [ ] 已注册微信公众平台账号
-- [ ] 已获取 AppID
-- [ ] 已生成并保存 AppSecret
-- [ ] 已配置授权回调页面域名
-- [ ] 已在 `.env.local` 中添加配置
-- [ ] 本地开发已配置内网穿透（如需要）
-- [ ] 已测试 OAuth 授权流程
+完成以下所有步骤后,您的微信公众号就可以正常使用了：
+
+- [ ] 已获取微信公众号的AppID
+- [ ] 已获取微信公众号的AppSecret
+- [ ] 已确认公众号主体类型（个人/企业）
+- [ ] 已在微信后台配置IP白名单
+- [ ] 已在微信后台配置JS接口安全域名（可选）
+- [ ] 已上传域名验证文件到`public`目录（如需要）
+- [ ] 已在SocialWiz中添加公众号配置
+- [ ] 配置验证通过,显示公众号信息
+- [ ] 已在测试页面成功获取access_token
+- [ ] 已测试发布功能（企业主体）或确认不支持（个人主体）
+
+---
 
 ## 相关链接
 
 - **微信公众平台**: https://mp.weixin.qq.com/
-- **微信公众平台文档**: https://developers.weixin.qq.com/doc/offiaccount/en/Getting_Started/Getting_Started_Guide.html
-- **OAuth 2.0 网页授权文档**: https://developers.weixin.qq.com/doc/offiaccount/en/OA_Web_Apps/Wechat_webpage_authorization.html
-- **测试账号申请**: https://mp.weixin.qq.com/debug/cgi-bin/sandbox?t=jsapisign
-- **ngrok**: https://ngrok.com/
+- **微信公众号开发文档**: https://developers.weixin.qq.com/doc/offiaccount/Getting_Started/Overview.html
+- **微信公众号API文档**: https://developers.weixin.qq.com/doc/offiaccount/Basic_Information/Get_access_token.html
+- **内网穿透工具Localtunnel**: https://localtunnel.github.io/www/
 
-## 常见问题
+---
 
-### Q: 订阅号可以使用 OAuth 2.0 吗？
-A: 订阅号支持 OAuth 2.0 网页授权，但功能可能受限。建议使用服务号或测试账号。
+## 安全建议
 
-### Q: 本地开发如何测试？
-A: 使用 ngrok 等内网穿透工具，将本地地址映射到公网域名，然后在微信公众平台配置该域名。
+1. **Secret保护**：
+   - 切勿将Secret提交到代码仓库
+   - 使用环境变量或密钥管理服务
+   - 定期轮换Secret
 
-### Q: AppSecret 忘记了怎么办？
-A: 在"基本配置"页面点击"重置"，生成新的 AppSecret。注意：重置后旧的密钥将失效。
+2. **IP白名单**：
+   - 只添加必要的服务器IP
+   - 定期审查白名单配置
+   - IP变更后及时更新
 
-### Q: 需要企业认证吗？
-A: 订阅号个人可以注册，但功能受限。服务号需要企业认证。开发测试建议使用测试账号。
+3. **Token安全**：
+   - access_token仅在服务器端使用
+   - 不要在前端代码中暴露token
+   - 使用HTTPS传输
 
-### Q: 测试账号和正式账号有什么区别？
-A: 测试账号功能完整，适合开发测试，但只能用于测试环境。正式账号可以用于生产环境。
+4. **日志审计**：
+   - 记录所有API调用
+   - 监控异常调用模式
+   - 及时发现安全问题
+
+---
+
+## 需要帮助？
+
+如果在配置过程中遇到问题：
+
+1. 查看本文档的"常见错误处理"章节
+2. 在测试页面查看详细错误日志
+3. 访问微信公众号开发文档
+4. 联系SocialWiz技术支持
