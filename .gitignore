@@ -25,6 +25,8 @@ lerna-debug.log*
 .env
 .env*.local
 .env.production
+# Allow .env.example to be tracked
+!.env.example
 
 # Vercel
 .vercel
@@ -81,3 +83,5 @@ yarn-error.log*
 
 # Mastra
 .mastra/
+# Public
+public/
