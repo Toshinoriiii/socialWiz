@@ -2,8 +2,10 @@ import { prisma } from '@/lib/db/prisma'
 import type { PublishStatus } from '@prisma/client'
 import { Platform } from '@/types/platform.types'
 import { WeiboAdapter } from '@/lib/platforms/weibo/weibo-adapter'
+import { WechatAdapter } from '@/lib/platforms/wechat/wechat-adapter'
 import type { PublishContent, PublishResult } from '@/lib/platforms/base/types'
-import { isTokenExpired, calculateTokenExpiry } from '@/lib/platforms/weibo/weibo-utils'
+import { isTokenExpired as isWeiboTokenExpired, calculateTokenExpiry as calculateWeiboTokenExpiry } from '@/lib/platforms/weibo/weibo-utils'
+import { isTokenExpired as isWechatTokenExpired, calculateTokenExpiry as calculateWechatTokenExpiry } from '@/lib/platforms/wechat/wechat-utils'
 import { getPlatformConfig } from '@/config/platform.config'
 
 export interface PublishContentInput {
@@ -108,20 +110,37 @@ export class PublishService {
     content: any,
     platformAccount: any
   ) {
-    // 检查 Token 是否过期
-    if (isTokenExpired(platformAccount.tokenExpiry)) {
+    // 检查 Token 是否过期（根据平台类型选择不同的检查函数）
+    const isExpired = platformAccount.platform === Platform.WECHAT
+      ? isWechatTokenExpired(platformAccount.tokenExpiry)
+      : isWeiboTokenExpired(platformAccount.tokenExpiry)
+
+    if (isExpired) {
       // 如果有 refresh_token，尝试刷新（微博 Web 应用不支持，但保留逻辑）
       if (platformAccount.refreshToken) {
         try {
-          const weiboConfig = getPlatformConfig(Platform.WEIBO)
-          const adapter = new WeiboAdapter({
-            appKey: process.env.WEIBO_APP_KEY || '',
-            appSecret: process.env.WEIBO_APP_SECRET || '',
-            redirectUri: process.env.WEIBO_REDIRECT_URI || ''
-          })
+          let newTokenInfo: any
+          let tokenExpiry: Date
 
-          const newTokenInfo = await adapter.refreshToken(platformAccount.refreshToken)
-          const tokenExpiry = calculateTokenExpiry(newTokenInfo.expiresIn)
+          if (platformAccount.platform === Platform.WECHAT) {
+            const adapter = new WechatAdapter({
+              appId: process.env.WECHAT_APP_ID || '',
+              appSecret: process.env.WECHAT_APP_SECRET || '',
+              redirectUri: process.env.WECHAT_REDIRECT_URI || ''
+            })
+
+            newTokenInfo = await adapter.refreshToken(platformAccount.refreshToken)
+            tokenExpiry = calculateWechatTokenExpiry(newTokenInfo.expiresIn)
+          } else {
+            const adapter = new WeiboAdapter({
+              appKey: process.env.WEIBO_APP_KEY || '',
+              appSecret: process.env.WEIBO_APP_SECRET || '',
+              redirectUri: process.env.WEIBO_REDIRECT_URI || ''
+            })
+
+            newTokenInfo = await adapter.refreshToken(platformAccount.refreshToken)
+            tokenExpiry = calculateWeiboTokenExpiry(newTokenInfo.expiresIn)
+          }
 
           // 更新 token
           await prisma.platformAccount.update({
@@ -176,19 +195,29 @@ export class PublishService {
     // 根据平台类型选择适配器
     let publishResult: PublishResult
 
+    // 准备发布内容
+    const publishContent: PublishContent = {
+      text: content.content || content.title || '',
+      images: content.images || []
+    }
+
     if (platformAccount.platform === Platform.WEIBO) {
       // 创建微博适配器
-      const weiboConfig = getPlatformConfig(Platform.WEIBO)
       const adapter = new WeiboAdapter({
         appKey: process.env.WEIBO_APP_KEY || '',
         appSecret: process.env.WEIBO_APP_SECRET || '',
         redirectUri: process.env.WEIBO_REDIRECT_URI || ''
       })
 
-      // 准备发布内容
-      const publishContent: PublishContent = {
-        text: content.content || content.title || ''
-      }
+      // 调用适配器发布
+      publishResult = await adapter.publish(platformAccount.accessToken, publishContent)
+    } else if (platformAccount.platform === Platform.WECHAT) {
+      // 创建微信公众号适配器
+      const adapter = new WechatAdapter({
+        appId: process.env.WECHAT_APP_ID || '',
+        appSecret: process.env.WECHAT_APP_SECRET || '',
+        redirectUri: process.env.WECHAT_REDIRECT_URI || ''
+      })
 
       // 调用适配器发布
       publishResult = await adapter.publish(platformAccount.accessToken, publishContent)

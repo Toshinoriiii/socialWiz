@@ -1,0 +1,568 @@
+﻿openapi: 3.0.3
+info:
+  title: Platform Publish Config API
+  description: |
+    平台发布配置管理API,允许用户为不同社交媒体平台创建和管理发布配置项。
+    
+    **认证方式**: JWT Bearer Token (通过Cookie或Authorization header)
+    
+    **权限控制**: 用户只能访问自己创建的配置
+  version: 1.0.0
+  contact:
+    name: SocialWiz API Support
+
+servers:
+  - url: http://localhost:3000/api
+    description: 本地开发环境
+  - url: https://socialwiz.com/api
+    description: 生产环境
+
+tags:
+  - name: Platform Configs
+    description: 平台发布配置管理
+
+paths:
+  /platforms/publish-configs:
+    get:
+      tags:
+        - Platform Configs
+      summary: 获取配置列表
+      description: |
+        获取当前用户的所有平台发布配置,支持按平台过滤。
+        
+        **权限**: 需要用户认证
+      operationId: getConfigs
+      parameters:
+        - name: platform
+          in: query
+          description: 过滤特定平台的配置
+          schema:
+            $ref: '#/components/schemas/Platform'
+          example: WECHAT
+        - name: isDefault
+          in: query
+          description: 只返回默认配置
+          schema:
+            type: boolean
+          example: true
+      responses:
+        '200':
+          description: 成功返回配置列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlatformPublishConfig'
+                  total:
+                    type: integer
+                    example: 5
+              example:
+                configs:
+                  - id: "config-123"
+                    userId: "user-456"
+                    platform: "WECHAT"
+                    configName: "技术文章配置"
+                    description: "用于发布技术类文章"
+                    configData:
+                      type: "wechat"
+                      author: "SocialWiz团队"
+                      contentSourceUrl: "https://socialwiz.com"
+                      needOpenComment: true
+                      onlyFansCanComment: false
+                    isDefault: true
+                    usageCount: 15
+                    createdAt: "2026-01-17T10:00:00.000Z"
+                    updatedAt: "2026-01-17T10:00:00.000Z"
+                total: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+    post:
+      tags:
+        - Platform Configs
+      summary: 创建新配置
+      description: |
+        为指定平台创建新的发布配置。
+        
+        **权限**: 需要用户认证
+        
+        **验证规则**:
+        - 配置名称在同一平台下必须唯一
+        - 配置名称长度: 1-50字符
+        - 配置数据必须符合平台schema
+      operationId: createConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConfigInput'
+            examples:
+              wechat:
+                summary: 微信配置示例
+                value:
+                  platform: "WECHAT"
+                  configName: "技术文章配置"
+                  description: "用于发布技术类文章"
+                  configData:
+                    type: "wechat"
+                    author: "SocialWiz团队"
+                    contentSourceUrl: "https://socialwiz.com"
+                    needOpenComment: true
+                    onlyFansCanComment: false
+              weibo:
+                summary: 微博配置示例
+                value:
+                  platform: "WEIBO"
+                  configName: "公开微博配置"
+                  description: "用于发布公开可见的微博"
+                  configData:
+                    type: "weibo"
+                    visibility: "public"
+                    allowComment: true
+                    allowRepost: true
+      responses:
+        '201':
+          description: 配置创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformPublishConfig'
+        '400':
+          description: 请求参数验证失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                duplicate_name:
+                  summary: 配置名称重复
+                  value:
+                    error: "配置名称已存在"
+                    message: "该平台下已存在名为'技术文章配置'的配置"
+                    code: "DUPLICATE_CONFIG_NAME"
+                validation_failed:
+                  summary: 数据验证失败
+                  value:
+                    error: "输入验证失败"
+                    details:
+                      configName: ["配置名称不能为空"]
+                      configData.author: ["作者名不能超过64个字符"]
+                    code: "VALIDATION_ERROR"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /platforms/publish-configs/{configId}:
+    get:
+      tags:
+        - Platform Configs
+      summary: 获取单个配置详情
+      description: |
+        根据ID获取配置详情。
+        
+        **权限**: 只能获取自己创建的配置
+      operationId: getConfigById
+      parameters:
+        - $ref: '#/components/parameters/ConfigId'
+      responses:
+        '200':
+          description: 成功返回配置详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformPublishConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 配置不存在或无权访问
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "配置不存在"
+                message: "未找到ID为'config-123'的配置,或您无权访问"
+                code: "CONFIG_NOT_FOUND"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+    put:
+      tags:
+        - Platform Configs
+      summary: 更新配置
+      description: |
+        更新已有配置的名称、描述或配置数据。
+        
+        **权限**: 只能更新自己创建的配置
+        
+        **注意**: 
+        - 可以部分更新(只传需要修改的字段)
+        - platform字段不可修改
+        - 修改配置名时会检查重名
+      operationId: updateConfig
+      parameters:
+        - $ref: '#/components/parameters/ConfigId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConfigInput'
+            examples:
+              update_name:
+                summary: 只更新名称
+                value:
+                  configName: "技术文章配置v2"
+              update_data:
+                summary: 更新配置数据
+                value:
+                  configData:
+                    type: "wechat"
+                    author: "新作者名"
+                    needOpenComment: false
+      responses:
+        '200':
+          description: 配置更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformPublishConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 配置不存在或无权访问
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+    delete:
+      tags:
+        - Platform Configs
+      summary: 删除配置
+      description: |
+        删除指定的配置项。
+        
+        **权限**: 只能删除自己创建的配置
+        
+        **注意**: 删除配置不影响已发布的内容(发布时存储配置快照)
+      operationId: deleteConfig
+      parameters:
+        - $ref: '#/components/parameters/ConfigId'
+      responses:
+        '200':
+          description: 配置删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "配置删除成功"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 配置不存在或无权访问
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+  /platforms/publish-configs/{configId}/set-default:
+    post:
+      tags:
+        - Platform Configs
+      summary: 设为默认配置
+      description: |
+        将指定配置设为默认配置,并取消该平台其他配置的默认标记。
+        
+        **权限**: 只能设置自己创建的配置
+        
+        **注意**: 默认配置仅作UI标记,不影响发布行为
+      operationId: setDefaultConfig
+      parameters:
+        - $ref: '#/components/parameters/ConfigId'
+      responses:
+        '200':
+          description: 设置成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformPublishConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 配置不存在或无权访问
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+      security:
+        - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication
+
+  parameters:
+    ConfigId:
+      name: configId
+      in: path
+      required: true
+      description: 配置ID (UUID)
+      schema:
+        type: string
+        format: uuid
+      example: "config-123-456-789"
+
+  schemas:
+    Platform:
+      type: string
+      enum:
+        - WECHAT
+        - WEIBO
+        - DOUYIN
+        - XIAOHONGSHU
+      description: |
+        支持的平台类型:
+        - WECHAT: 微信公众号
+        - WEIBO: 微博
+        - DOUYIN: 抖音
+        - XIAOHONGSHU: 小红书
+
+    PlatformPublishConfig:
+      type: object
+      required:
+        - id
+        - userId
+        - platform
+        - configName
+        - configData
+        - isDefault
+        - usageCount
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 配置唯一标识
+        userId:
+          type: string
+          format: uuid
+          description: 配置所属用户ID
+        platform:
+          $ref: '#/components/schemas/Platform'
+        configName:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: 配置名称
+          example: "技术文章配置"
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: 配置描述
+          example: "用于发布技术类文章,自动填充作者和原文链接"
+        configData:
+          oneOf:
+            - $ref: '#/components/schemas/WechatConfigData'
+            - $ref: '#/components/schemas/WeiboConfigData'
+          description: 平台特定配置数据
+        isDefault:
+          type: boolean
+          description: 是否为默认配置(仅UI标记)
+          example: true
+        usageCount:
+          type: integer
+          minimum: 0
+          description: 配置使用次数
+          example: 15
+        createdAt:
+          type: string
+          format: date-time
+          description: 创建时间
+        updatedAt:
+          type: string
+          format: date-time
+          description: 更新时间
+
+    WechatConfigData:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [wechat]
+          description: 配置类型标识
+        author:
+          type: string
+          maxLength: 64
+          description: 作者名
+          example: "SocialWiz团队"
+        contentSourceUrl:
+          type: string
+          format: uri
+          description: 原文链接(阅读原文按钮)
+          example: "https://socialwiz.com"
+        needOpenComment:
+          type: boolean
+          description: 是否开启留言
+          default: false
+        onlyFansCanComment:
+          type: boolean
+          description: 是否只有粉丝可留言
+          default: false
+
+    WeiboConfigData:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [weibo]
+          description: 配置类型标识
+        visibility:
+          type: string
+          enum: [public, friends, self]
+          description: 可见范围
+          default: public
+        allowComment:
+          type: boolean
+          description: 允许评论
+          default: true
+        allowRepost:
+          type: boolean
+          description: 允许转发
+          default: true
+
+    CreateConfigInput:
+      type: object
+      required:
+        - platform
+        - configName
+        - configData
+      properties:
+        platform:
+          $ref: '#/components/schemas/Platform'
+        configName:
+          type: string
+          minLength: 1
+          maxLength: 50
+          pattern: '^[\u4e00-\u9fa5a-zA-Z0-9_\-\s]+$'
+          description: 配置名称(只能包含中文、英文、数字、下划线和短横线)
+          example: "技术文章配置"
+        description:
+          type: string
+          maxLength: 500
+          description: 配置描述
+          example: "用于发布技术类文章"
+        configData:
+          oneOf:
+            - $ref: '#/components/schemas/WechatConfigData'
+            - $ref: '#/components/schemas/WeiboConfigData'
+
+    UpdateConfigInput:
+      type: object
+      properties:
+        configName:
+          type: string
+          minLength: 1
+          maxLength: 50
+          pattern: '^[\u4e00-\u9fa5a-zA-Z0-9_\-\s]+$'
+          description: 配置名称
+        description:
+          type: string
+          maxLength: 500
+          description: 配置描述
+        configData:
+          oneOf:
+            - $ref: '#/components/schemas/WechatConfigData'
+            - $ref: '#/components/schemas/WeiboConfigData'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: 错误简要描述
+          example: "配置名称已存在"
+        message:
+          type: string
+          description: 详细错误信息
+          example: "该平台下已存在名为'技术文章配置'的配置"
+        code:
+          type: string
+          description: 错误代码
+          example: "DUPLICATE_CONFIG_NAME"
+        details:
+          type: object
+          description: 详细错误信息(用于表单验证)
+          additionalProperties: true
+
+  responses:
+    Unauthorized:
+      description: 未认证或认证失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "未授权"
+            message: "请先登录"
+            code: "UNAUTHORIZED"
+
+    BadRequest:
+      description: 请求参数验证失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    InternalServerError:
+      description: 服务器内部错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "服务器错误"
+            message: "处理请求时发生内部错误"
+            code: "INTERNAL_SERVER_ERROR"

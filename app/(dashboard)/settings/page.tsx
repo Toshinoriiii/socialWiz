@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { Edit, MessageCircle, MessageSquare, Instagram, User, Key } from 'lucide-react'
+import { Edit, User, Key } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -19,13 +19,6 @@ import {
 import { useUserStore } from '@/store/user.store'
 import { toast } from 'sonner'
 import type { UserProfile } from '@/types/user.types'
-
-const platforms = [
-  { id: 1, name: '微信', icon: <MessageCircle className="size-5" />, connected: true },
-  { id: 2, name: '微博', icon: <MessageSquare className="size-5" />, connected: true },
-  { id: 3, name: '抖音', icon: <Instagram className="size-5" />, connected: true },
-  { id: 4, name: '小红书', icon: <Instagram className="size-5" />, connected: false }
-]
 
 export default function SettingsPage() {
   const { user, token, updateProfile } = useUserStore()
@@ -270,10 +263,6 @@ export default function SettingsPage() {
             <User className="size-4 mr-2" />
             个人信息
           </TabsTrigger>
-          <TabsTrigger value="platforms" className="data-[state=active]:bg-black data-[state=active]:text-white text-black">
-            <MessageCircle className="size-4 mr-2" />
-            平台绑定
-          </TabsTrigger>
           <TabsTrigger value="password" className="data-[state=active]:bg-black data-[state=active]:text-white text-black">
             <Key className="size-4 mr-2" />
             修改密码
@@ -375,49 +364,6 @@ export default function SettingsPage() {
                   </div>
                 </>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="platforms" className="mt-6">
-          <Card className="border border-gray-300 bg-white">
-            <CardHeader>
-              <CardTitle className="text-black">第三方平台绑定</CardTitle>
-              <CardDescription className="text-gray-600">
-                连接您的社交媒体账号以便发布内容
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {platforms.map((platform, index) => (
-                  <React.Fragment key={platform.id}>
-                    <div className="flex items-center justify-between py-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-lg bg-black flex items-center justify-center text-white">
-                          {platform.icon}
-                        </div>
-                        <div>
-                          <div className="font-medium text-black">{platform.name}</div>
-                          <div className="text-sm text-gray-600">
-                            {platform.connected ? '已绑定' : '未绑定'}
-                          </div>
-                        </div>
-                      </div>
-                      <Button
-                        variant={platform.connected ? 'outline' : 'default'}
-                        size="sm"
-                        className={platform.connected 
-                          ? "border-gray-300 text-black hover:bg-gray-100 transition-all duration-150" 
-                          : "bg-black text-white hover:bg-gray-800 transition-all duration-150"
-                        }
-                      >
-                        {platform.connected ? '解绑' : '绑定'}
-                      </Button>
-                    </div>
-                    {index < platforms.length - 1 && <Separator className="bg-gray-300" />}
-                  </React.Fragment>
-                ))}
-              </div>
             </CardContent>
           </Card>
         </TabsContent>

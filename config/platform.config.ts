@@ -1,4 +1,4 @@
-﻿import { Platform } from '@/types/platform.types'
+import { Platform } from '@/types/platform.types'
 import {
   WechatOutlined,
   WeiboOutlined
@@ -95,6 +95,33 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformInfo> = {
 
 export const getPlatformConfig = (platform: Platform): PlatformInfo => {
   return PLATFORM_CONFIGS[platform]
+}
+
+/**
+ * 验证平台配置的环境变量
+ * 检查必要的环境变量是否已设置
+ */
+export function validatePlatformConfig(platform: Platform): { valid: boolean; missing: string[] } {
+  const missing: string[] = []
+
+  switch (platform) {
+    case Platform.WECHAT:
+      if (!process.env.WECHAT_APP_ID) missing.push('WECHAT_APP_ID')
+      if (!process.env.WECHAT_APP_SECRET) missing.push('WECHAT_APP_SECRET')
+      if (!process.env.WECHAT_REDIRECT_URI) missing.push('WECHAT_REDIRECT_URI')
+      break
+    case Platform.WEIBO:
+      if (!process.env.WEIBO_APP_KEY) missing.push('WEIBO_APP_KEY')
+      if (!process.env.WEIBO_APP_SECRET) missing.push('WEIBO_APP_SECRET')
+      if (!process.env.WEIBO_REDIRECT_URI) missing.push('WEIBO_REDIRECT_URI')
+      break
+    // 其他平台暂不验证
+  }
+
+  return {
+    valid: missing.length === 0,
+    missing
+  }
 }
 
 export const validateContent = (platform: Platform, content: string, images: string[]): { valid: boolean; errors: string[] } => {
