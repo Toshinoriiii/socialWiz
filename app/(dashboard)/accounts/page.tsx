@@ -28,6 +28,7 @@ import {
 import { useUserStore } from '@/store/user.store'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
+import WechatConfigGuide from '@/components/dashboard/platforms/WechatConfigGuide'
 
 interface PlatformAccount {
   id: string
@@ -535,17 +536,30 @@ export default function AccountsPage() {
 
       {/* 微信配置弹窗 */}
       <Dialog open={wechatConfigOpen} onOpenChange={setWechatConfigOpen}>
-        <DialogContent className="sm:max-w-[600px] bg-white border border-gray-300 max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[800px] bg-white border border-gray-300 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-black flex items-center gap-2">
               <MessageCircle className="size-5 text-green-600" />
-              配置微信公众号
+              绑定微信公众号
             </DialogTitle>
             <DialogDescription className="text-gray-600">
-              请输入您的微信公众号配置信息。需要先在微信公众平台获取AppID和AppSecret。
+              请按照以下步骤配置您的微信公众号，配置成功后即可发布内容。
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+
+          {/* 配置指引 */}
+          <div className="py-4">
+            <WechatConfigGuide 
+              showPersonalWarning={wechatForm.subjectType === 'personal'}
+            />
+          </div>
+
+          <Separator className="bg-gray-200" />
+
+          {/* 配置表单 */}
+          <div className="space-y-4 pt-4">
+            <h4 className="font-semibold text-black">填写配置信息</h4>
+            
             {/* AppID */}
             <div className="space-y-2">
               <Label htmlFor="appId" className="text-black">
@@ -556,11 +570,8 @@ export default function AccountsPage() {
                 value={wechatForm.appId}
                 onChange={(e) => setWechatForm({ ...wechatForm, appId: e.target.value })}
                 placeholder="请输入微信公众号AppID"
-                className="bg-white border-gray-300 text-black"
+                className="bg-white border-gray-300 text-black font-mono"
               />
-              <p className="text-xs text-gray-500">
-                在微信公众平台「开发」-「基本配置」中获取
-              </p>
             </div>
 
             {/* AppSecret */}
@@ -574,14 +585,12 @@ export default function AccountsPage() {
                 value={wechatForm.appSecret}
                 onChange={(e) => setWechatForm({ ...wechatForm, appSecret: e.target.value })}
                 placeholder="请输入微信公众号AppSecret"
-                className="bg-white border-gray-300 text-black"
+                className="bg-white border-gray-300 text-black font-mono"
               />
               <p className="text-xs text-gray-500">
-                在微信公众平台「开发」-「基本配置」中获取(加密存储)
+                加密存储，仅用于调用微信API
               </p>
             </div>
-
-            <Separator className="bg-gray-200" />
 
             {/* 账号名称 */}
             <div className="space-y-2">
@@ -592,11 +601,11 @@ export default function AccountsPage() {
                 id="accountName"
                 value={wechatForm.accountName}
                 onChange={(e) => setWechatForm({ ...wechatForm, accountName: e.target.value })}
-                placeholder="例如:我的公众号"
+                placeholder="例如：我的公众号"
                 className="bg-white border-gray-300 text-black"
               />
               <p className="text-xs text-gray-500">
-                用于标识此公众号,留空将自动获取
+                用于标识此公众号，留空将使用AppID
               </p>
             </div>
 
@@ -619,30 +628,18 @@ export default function AccountsPage() {
                   <SelectItem value="enterprise">企业主体</SelectItem>
                 </SelectContent>
               </Select>
-              <Alert className="border-yellow-200 bg-yellow-50">
-                <AlertCircle className="size-4 text-yellow-600" />
-                <AlertDescription className="text-yellow-800 text-xs">
-                  <strong>重要提示：</strong>个人主体公众号不支持发布功能,仅能获取信息。如需发布功能,请使用企业主体公众号。
-                </AlertDescription>
-              </Alert>
+              {wechatForm.subjectType === 'personal' && (
+                <Alert className="border-yellow-200 bg-yellow-50">
+                  <AlertCircle className="size-4 text-yellow-600" />
+                  <AlertDescription className="text-yellow-800 text-xs">
+                    <strong>重要提示：</strong>个人主体公众号不支持发布功能，仅能获取信息。如需发布功能，请使用企业主体公众号。
+                  </AlertDescription>
+                </Alert>
+              )}
             </div>
-
-            <Separator className="bg-gray-200" />
-
-            {/* 配置说明 */}
-            <Alert className="border-blue-200 bg-blue-50">
-              <AlertCircle className="size-4 text-blue-600" />
-              <AlertDescription className="text-blue-800 text-xs space-y-2">
-                <p><strong>配置前请确保：</strong></p>
-                <ul className="list-disc list-inside space-y-1">
-                  <li>已在微信公众平台配置IP白名单(将您的服务器IP添加到白名单)</li>
-                  <li>已配置安全域名(可选,建议配置)</li>
-                  <li>AppID和AppSecret正确无误</li>
-                </ul>
-              </AlertDescription>
-            </Alert>
           </div>
-          <DialogFooter>
+          
+          <DialogFooter className="pt-4">
             <Button
               variant="outline"
               onClick={() => {

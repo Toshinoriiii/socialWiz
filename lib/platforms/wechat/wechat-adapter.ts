@@ -56,48 +56,64 @@ export class WechatAdapter implements PlatformAdapter {
     this.client = new WechatApiClient()
   }
 
-  /**
+ /**
    * 获取授权 URL
    * 
-   * 生成微信开放平台网站应用授权 URL，用于在PC浏览器中扫码登录。
+   * 支持两种授权方式：
+   * 1. 服务号网页授权：在微信客户端内打开，使用 snsapi_base 或 snsapi_userinfo
+   * 2. 网站应用扫码登录：在PC浏览器中打开，使用 snsapi_login
    * 
-   * 参考官方文档：网站应用微信登录
-   * https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html
+   * 服务号网页授权：
+   * - 参考文档：https://developers.weixin.qq.com/doc/service/guide/h5/auth.html
+   * - URL: https://open.weixin.qq.com/connect/oauth2/authorize
+   * - scope: snsapi_base（静默授权）或 snsapi_userinfo（弹窗授权）
+   * - 需要在服务号后台配置"网页授权域名"
    * 
-   * 授权URL格式：
-   * https://open.weixin.qq.com/connect/qrconnect?appid=APPID&redirect_uri=REDIRECT_URI&response_type=code&scope=snsapi_login&state=STATE#wechat_redirect
+   * 网站应用扫码登录：
+   * - 参考文档：https://developers.weixin.qq.com/doc/oplatform/developers/dev/auth/web.html
+   * - URL: https://open.weixin.qq.com/connect/qrconnect
+   * - scope: snsapi_login（固定）
+   * - 需要在微信开放平台配置"网站应用"
    * 
-   * 重要说明：
-   * - 使用微信开放平台的网站应用 AppID（从 https://open.weixin.qq.com/ 获取，不是公众号AppID）
-   * - scope 必须为 snsapi_login（网站应用仅支持此scope）
-   * - redirect_uri 必须使用 urlEncode 对链接进行处理
-   * - 必须在微信开放平台提交网站应用审核通过后才能使用
-   * - 必须在微信开放平台配置授权回调域名
-   * - 授权回调域名必须与审核时填写的域名一致
-   * - 用户扫码确认后会跳转到 redirect_uri 并带上 code 参数
-   * - access_token 有效期为 2 小时，refresh_token 有效期为 30 天
-   * 
-   * @param config 授权配置，包含 clientId、clientSecret、redirectUri、state 等
+   * @param config 授权配置，包含 clientId、clientSecret、redirectUri、state、scope 等
    * @returns 授权 URL
    */
   async getAuthUrl(config: AuthConfig): Promise<string> {
-    const wechatConfig = config as (AuthConfig & { clientId: string; redirectUri: string; state?: string })
+    const wechatConfig = config as (AuthConfig & { 
+      clientId: string
+      redirectUri: string
+      state?: string
+      scope?: string
+    })
     
     // redirect_uri 必须使用 urlEncode 对链接进行处理
     const redirectUri = encodeURIComponent(wechatConfig.redirectUri)
     
-    // 微信开放平台网站应用授权参数
-    const params = new URLSearchParams({
-      appid: wechatConfig.clientId,
-      redirect_uri: redirectUri, // 已编码
-      response_type: 'code',
-      scope: 'snsapi_login', // 网站应用必须使用 snsapi_login
-      state: wechatConfig.state || ''
-    })
-
-    // 微信开放平台网站应用授权URL（扫码登录）
-    // 在浏览器中打开会显示二维码页面，用户用微信扫码确认授权
-    return `https://open.weixin.qq.com/connect/qrconnect?${params.toString()}#wechat_redirect`
+    // 默认使用服务号网页授权（snsapi_userinfo）
+    const scope = wechatConfig.scope || 'snsapi_userinfo'
+    
+    // 根据 scope 决定使用哪种授权方式
+    if (scope === 'snsapi_login') {
+      // 网站应用扫码登录
+      const params = new URLSearchParams({
+        appid: wechatConfig.clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'snsapi_login',
+        state: wechatConfig.state || ''
+      })
+      return `https://open.weixin.qq.com/connect/qrconnect?${params.toString()}#wechat_redirect`
+    } else {
+      // 服务号网页授权（snsapi_base 或 snsapi_userinfo）
+      const params = new URLSearchParams({
+        appid: wechatConfig.clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: scope, // snsapi_base 或 snsapi_userinfo
+        state: wechatConfig.state || ''
+      })
+      return `https://open.weixin.qq.com/connect/oauth2/authorize?${params.toString()}#wechat_redirect`
+    }
   }
 
   /**

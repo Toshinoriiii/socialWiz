@@ -48,6 +48,10 @@ export default function WechatConfigTestPage() {
   const [testingToken, setTestingToken] = useState(false)
   const [tokenInfo, setTokenInfo] = useState<{ token: string; expiresAt: number; configId: string } | null>(null)
 
+  // OAuth测试状态
+  const [testingOAuth, setTestingOAuth] = useState(false)
+  const [oauthWindow, setOauthWindow] = useState<Window | null>(null)
+
   // 发布测试状态
   const [showPublishForm, setShowPublishForm] = useState(false)
   const [publishConfigId, setPublishConfigId] = useState('')
@@ -92,6 +96,26 @@ export default function WechatConfigTestPage() {
   useEffect(() => {
     if (token && user) {
       fetchConfigs()
+    }
+
+    // 监听OAuth回调消息
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === 'wechat_auth_success') {
+        addTestResult('OAuth授权', true, 'OAuth授权成功！账号已绑定')
+        setTestingOAuth(false)
+        setOauthWindow(null)
+        // 刷新配置列表
+        fetchConfigs()
+      } else if (event.data.type === 'wechat_auth_error') {
+        addTestResult('OAuth授权', false, `授权失败: ${event.data.error}`)
+        setTestingOAuth(false)
+        setOauthWindow(null)
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => {
+      window.removeEventListener('message', handleMessage)
     }
   }, [token, user])
 
@@ -279,6 +303,52 @@ export default function WechatConfigTestPage() {
       addTestResult('Token测试', false, `错误: ${error instanceof Error ? error.message : '未知错误'}`)
     } finally {
       setTestingToken(false)
+    }
+  }
+
+  // 测试OAuth授权
+  const testOAuthAuth = async (configId: string, appId: string) => {
+    if (!token) {
+      addTestResult('OAuth授权', false, '用户未登录')
+      return
+    }
+
+    try {
+      setTestingOAuth(true)
+      addTestResult('OAuth授权', true, '正在获取授权URL...')
+
+      const response = await fetch(`/api/platforms/wechat/auth?token=${token}&configId=${configId}`)
+      const data = await response.json()
+
+      if (response.ok && data.authUrl) {
+        addTestResult('OAuth授权', true, `授权URL已生成，正在打开新窗口... AppID: ${appId}`)
+        
+        // 在新窗口打开授权URL
+        const width = 600
+        const height = 700
+        const left = (window.screen.width - width) / 2
+        const top = (window.screen.height - height) / 2
+        
+        const authWindow = window.open(
+          data.authUrl,
+          'wechat_oauth',
+          `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+        )
+
+        if (authWindow) {
+          setOauthWindow(authWindow)
+          addTestResult('OAuth授权', true, '请在新窗口中扫码授权')
+        } else {
+          addTestResult('OAuth授权', false, '无法打开授权窗口，请检查浏览器弹窗阻止设置')
+          setTestingOAuth(false)
+        }
+      } else {
+        addTestResult('OAuth授权', false, data.error || '获取授权URL失败')
+        setTestingOAuth(false)
+      }
+    } catch (error) {
+      addTestResult('OAuth授权', false, `错误: ${error instanceof Error ? error.message : '未知错误'}`)
+      setTestingOAuth(false)
     }
   }
 
@@ -570,14 +640,24 @@ export default function WechatConfigTestPage() {
 
                   {/* Token测试按钮 */}
                   <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f0f0f0' }}>
-                    <button
-                      onClick={() => testGetToken(config.id, config.appId)}
-                      className={styles.submitButton}
-                      disabled={testingToken}
-                      style={{ width: '100%' }}
-                    >
-                      {testingToken ? <LoadingOutlined /> : '🔑 测试获取Access Token'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                      <button
+                        onClick={() => testGetToken(config.id, config.appId)}
+                        className={styles.submitButton}
+                        disabled={testingToken}
+                        style={{ width: '100%' }}
+                      >
+                        {testingToken ? <LoadingOutlined /> : '🔑 测试获取Access Token'}
+                      </button>
+                      <button
+                        onClick={() => testOAuthAuth(config.id, config.appId)}
+                        className={styles.submitButton}
+                        disabled={testingOAuth}
+                        style={{ width: '100%', backgroundColor: '#1890ff' }}
+                      >
+                        {testingOAuth ? <LoadingOutlined /> : '🔐 测试OAuth授权'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* 编辑表单 */}
