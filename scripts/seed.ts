@@ -3,6 +3,9 @@
  * 用于初始化测试数据
  */
 
+// 加载环境变量（统一使用 .env.local）
+import '../lib/utils/env-loader'
+
 import { PrismaClient, Platform } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 

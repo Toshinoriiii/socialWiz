@@ -2,6 +2,9 @@
  * 创建管理员账号脚本
  */
 
+// 加载环境变量（统一使用 .env.local）
+import '../lib/utils/env-loader'
+
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 

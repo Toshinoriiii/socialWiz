@@ -3,6 +3,9 @@
  * 用于生产环境数据库迁移
  */
 
+// 加载环境变量（统一使用 .env.local）
+import '../lib/utils/env-loader'
+
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
