@@ -129,6 +129,12 @@ const navItems: NavItem[] = [
 export function DashboardSidebar() {
   const pathname = usePathname()
   const { toggleSidebar, state } = useSidebar()
+  const [mounted, setMounted] = useState(false)
+
+  // 确保客户端已挂载
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const isActive = (href: string) => {
     return pathname === href || pathname?.startsWith(href + '/')
@@ -140,10 +146,12 @@ export function DashboardSidebar() {
   const flyoutRef = useRef<HTMLDivElement>(null)
   const menuItemRefs = useRef<Record<string, HTMLElement>>({})
 
-  // 调试：监听状态变化
+  // 调试：监听状态变化(只在客户端)
   useEffect(() => {
-    console.log('Sidebar state changed:', { state, isCollapsed, activeFlyout })
-  }, [state, isCollapsed, activeFlyout])
+    if (mounted) {
+      console.log('Sidebar state changed:', { state, isCollapsed, activeFlyout })
+    }
+  }, [mounted, state, isCollapsed, activeFlyout])
 
   const handleParentClick = (itemId: string, e?: React.MouseEvent) => {
     if (e) {
@@ -239,7 +247,7 @@ export function DashboardSidebar() {
                     // 展开状态：使用 Collapsible 控制内联菜单
                     if (!isCollapsed) {
                       return (
-                        <Collapsible key={item.id} defaultOpen={active} className="group/collapsible">
+                        <Collapsible key={item.id} defaultOpen={false} className="group/collapsible">
                           <SidebarMenuItem>
                             <CollapsibleTrigger asChild>
                               <SidebarMenuButton isActive={active}>
@@ -308,7 +316,7 @@ export function DashboardSidebar() {
                         )}
 
                         {/* 点击后显示的悬浮二级菜单 - 使用 Portal 渲染到 body */}
-                        {activeFlyout === item.id && flyoutPosition && typeof window !== 'undefined' && createPortal(
+                        {mounted && activeFlyout === item.id && flyoutPosition && createPortal(
                           <div 
                             ref={flyoutRef} 
                             className="fixed z-[99999] pointer-events-auto"

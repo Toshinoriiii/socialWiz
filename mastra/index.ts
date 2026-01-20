@@ -2,27 +2,65 @@
 import { Mastra } from '@mastra/core/mastra';
 import { PinoLogger } from '@mastra/loggers';
 import { LibSQLStore } from '@mastra/libsql';
-import { weatherWorkflow } from './workflows/weather-workflow';
-import { weatherAgent } from './agents/weather-agent';
+import { createOpenAI } from '@ai-sdk/openai';
+import { contentCreationWorkflow } from './workflows/content-creation-workflow';
+import { webSearchAgent } from './agents/web-search-agent';
+import { contentCreationAgent } from './agents/content-creation-agent';
+import { imagePromptAgent } from './agents/image-prompt-agent';
+import { contentMixAgent } from './agents/content-mix-agent';
+import { getMCPClient } from './mcp';
 
-
-export const mastra = new Mastra({
-  workflows: { weatherWorkflow },
-  agents: { weatherAgent },
-  storage: new LibSQLStore({
-    // stores observability, scores, ... into memory storage, if it needs to persist, change to file:../mastra.db
-    url: ":memory:",
-  }),
-  logger: new PinoLogger({
-    name: 'Mastra',
-    level: 'info',
-  }),
-  telemetry: {
-    // Telemetry is deprecated and will be removed in the Nov 4th release
-    enabled: false, 
-  },
-  observability: {
-    // Enables DefaultExporter and CloudExporter for AI tracing
-    default: { enabled: true }, 
-  },
+// 创建 DeepSeek LLM 实例
+const deepseek = createOpenAI({
+  baseURL: 'https://api.deepseek.com',
+  apiKey: process.env.DEEPSEEK_API_KEY,
 });
+
+// 创建 Mastra 实例的异步初始化函数
+async function createMastraInstance() {
+  let mcpTools = {};
+  
+  try {
+    // 尝试初始化 MCP 客户端
+    const mcpClient = getMCPClient();
+    mcpTools = await mcpClient.getTools();
+    console.log('MCP tools loaded successfully');
+  } catch (error) {
+    console.warn('Failed to load MCP tools, continuing without them:', error);
+  }
+
+  return new Mastra({
+    workflows: { 
+      contentCreationWorkflow,
+    },
+    agents: { 
+      webSearchAgent,
+      contentCreationAgent,
+      imagePromptAgent,
+      contentMixAgent,
+    },
+    tools: mcpTools,
+    llms: {
+      deepseek: deepseek('deepseek-chat'),
+    },
+    storage: new LibSQLStore({
+      // stores observability, scores, ... into memory storage, if it needs to persist, change to file:../mastra.db
+      url: ":memory:",
+    }),
+    logger: new PinoLogger({
+      name: 'Mastra',
+      level: 'info',
+    }),
+    telemetry: {
+      // Telemetry is deprecated and will be removed in the Nov 4th release
+      enabled: false, 
+    },
+    observability: {
+      // Enables DefaultExporter and CloudExporter for AI tracing
+      default: { enabled: true }, 
+    },
+  });
+}
+
+// 导出 Mastra 实例
+export const mastra = await createMastraInstance();

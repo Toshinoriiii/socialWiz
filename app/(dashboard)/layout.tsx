@@ -76,9 +76,17 @@ function HeaderContent() {
 
 function AutoCollapseSidebar() {
   const { state, setOpen } = useSidebar()
+  const [mounted, setMounted] = React.useState(false)
+
+  // 确保组件已挂载(客户端)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // 监听窗口大小变化，在小屏幕时自动折叠sidebar
   useEffect(() => {
+    if (!mounted) return
+    
     const checkScreenSize = () => {
       const small = window.innerWidth < 1024 // lg断点
       if (small && state === 'expanded') {
@@ -89,7 +97,7 @@ function AutoCollapseSidebar() {
     checkScreenSize()
     window.addEventListener('resize', checkScreenSize)
     return () => window.removeEventListener('resize', checkScreenSize)
-  }, [state, setOpen])
+  }, [mounted, state, setOpen])
 
   return null
 }
@@ -100,7 +108,7 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       {/* 左侧导航栏 */}
       <DashboardSidebar />
       

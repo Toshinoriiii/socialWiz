@@ -20,6 +20,7 @@ model User {
   platformAccounts        PlatformAccount[]
   wechatConfigs           WechatAccountConfig[]
   platformPublishConfigs  PlatformPublishConfig[]
+  contentRequests         ContentGenerationRequest[]
 
   @@index([email])
 }
@@ -181,4 +182,107 @@ enum PublishStatus {
 enum AIGenerationType {
   TEXT
   IMAGE
+}
+
+enum ContentGenerationStatus {
+  PENDING
+  SEARCHING
+  CREATING
+  GENERATING_IMAGE
+  COMPLETED
+  FAILED
+}
+
+enum WorkflowExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum StepExecutionStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+  RETRYING
+}
+
+model ContentGenerationRequest {
+  id                String                     @id @default(cuid())
+  userId            String
+  prompt            String                     @db.Text
+  platform          Platform?
+  style             String?                    @db.Text
+  status            ContentGenerationStatus    @default(PENDING)
+  content           GeneratedContent?
+  workflowExecution WorkflowExecution?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  user              User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model GeneratedContent {
+  id            String                     @id @default(cuid())
+  requestId     String                     @unique
+  title         String?                    @db.Text
+  body          String                     @db.Text
+  tags          String[]
+  imageUrl      String?
+  imagePrompt   String?                    @db.Text
+  platform      Platform?
+  searchResults Json?
+  rating        Int?
+  feedback      String?                    @db.Text
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+  request       ContentGenerationRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([createdAt])
+}
+
+model WorkflowExecution {
+  id           String                   @id @default(cuid())
+  requestId    String                   @unique
+  workflowId   String
+  status       WorkflowExecutionStatus  @default(RUNNING)
+  currentStep  String?
+  input        Json
+  output       Json?
+  error        String?                  @db.Text
+  errorStep    String?
+  startedAt    DateTime                 @default(now())
+  completedAt  DateTime?
+  duration     Int?
+  steps        WorkflowStepExecution[]
+  request      ContentGenerationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([status])
+  @@index([workflowId])
+}
+
+model WorkflowStepExecution {
+  id          String               @id @default(cuid())
+  executionId String
+  stepId      String
+  stepName    String
+  status      StepExecutionStatus  @default(RUNNING)
+  retryCount  Int                  @default(0)
+  input       Json?
+  output      Json?
+  error       String?              @db.Text
+  startedAt   DateTime             @default(now())
+  completedAt DateTime?
+  duration    Int?
+  execution   WorkflowExecution    @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@index([stepId])
 }

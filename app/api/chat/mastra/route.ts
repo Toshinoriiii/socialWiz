@@ -36,21 +36,18 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      // 执行 workflow - 使用正确的 execute 方法
-      const result = await workflow.execute({
+      // 执行 workflow - 使用新版 API
+      const run = await workflow.createRunAsync();
+      const result = await run.start({
         inputData: workflowInput,
-        state: {},
-        setState: () => {},
-        getStepResult: () => undefined,
-        mastra,
-      } as any)
+      });
 
       // 提取文本内容
       let textContent = ''
-      if (typeof result === 'string') {
-        textContent = result
-      } else if (result && typeof result === 'object') {
-        textContent = (result as any).activities || JSON.stringify(result, null, 2)
+      if (typeof result.output === 'string') {
+        textContent = result.output
+      } else if (result.output && typeof result.output === 'object') {
+        textContent = JSON.stringify(result.output, null, 2)
       }
 
       // 使用 streamText 创建流式响应，使用简单的模型
