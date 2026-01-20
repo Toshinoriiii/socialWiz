@@ -71,7 +71,7 @@ export default function WechatConfigTestPage() {
 
     try {
       setLoading(true)
-      const response = await fetch('/api/wechat/config', {
+      const response = await fetch('/api/platforms/wechat/config', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -133,7 +133,7 @@ export default function WechatConfigTestPage() {
 
     try {
       setLoading(true)
-      const response = await fetch('/api/wechat/config', {
+      const response = await fetch('/api/platforms/wechat/config', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -191,7 +191,7 @@ export default function WechatConfigTestPage() {
 
     try {
       setLoading(true)
-      const response = await fetch(`/api/wechat/config/${configId}`, {
+      const response = await fetch(`/api/platforms/wechat/config/${configId}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -233,7 +233,7 @@ export default function WechatConfigTestPage() {
 
     try {
       setLoading(true)
-      const response = await fetch(`/api/wechat/config/${configId}`, {
+      const response = await fetch(`/api/platforms/wechat/config/${configId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -280,7 +280,7 @@ export default function WechatConfigTestPage() {
 
     try {
       setTestingToken(true)
-      const response = await fetch(`/api/wechat/token/${configId}`, {
+      const response = await fetch(`/api/platforms/wechat/token/${configId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }

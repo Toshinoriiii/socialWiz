@@ -123,7 +123,7 @@ export default function AccountsPage() {
         fetch('/api/platforms', {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch('/api/wechat/config', {
+        fetch('/api/platforms/wechat/config', {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ])
@@ -231,7 +231,7 @@ export default function AccountsPage() {
 
     try {
       setSubmitting(true)
-      const response = await fetch('/api/wechat/config', {
+      const response = await fetch('/api/platforms/wechat/config', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -282,7 +282,7 @@ export default function AccountsPage() {
       // 微信平台使用不同的API路径
       let apiPath: string
       if (platform === 'WECHAT') {
-        apiPath = `/api/wechat/config/${accountId}`
+        apiPath = `/api/platforms/wechat/config/${accountId}`
       } else if (platform === 'WEIBO') {
         apiPath = `/api/platforms/weibo/${accountId}/disconnect`
       } else {

@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { wechatConfigService } from '@/lib/services/wechat-config.service'
 import { verify } from 'jsonwebtoken'
 
@@ -23,7 +23,7 @@ function getUserIdFromRequest(request: NextRequest): string | null {
 }
 
 /**
- * GET /api/wechat/config/[configId]
+ * GET /api/platforms/wechat/config/[configId]
  * 获取单个配置
  */
 export async function GET(
@@ -60,7 +60,7 @@ export async function GET(
 }
 
 /**
- * PUT /api/wechat/config/[configId]
+ * PUT /api/platforms/wechat/config/[configId]
  * 更新配置
  */
 export async function PUT(
@@ -98,7 +98,7 @@ export async function PUT(
 }
 
 /**
- * DELETE /api/wechat/config/[configId]
+ * DELETE /api/platforms/wechat/config/[configId]
  * 删除配置
  */
 export async function DELETE(

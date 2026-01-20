@@ -30,7 +30,7 @@ export default function WechatConfigGuide({
   const fetchServerIp = async () => {
     setLoadingIp(true)
     try {
-      const response = await fetch('/api/wechat/server-info')
+      const response = await fetch('/api/platforms/wechat/server-info')
       if (response.ok) {
         const data = await response.json()
         setServerIp(data.publicIp || '无法获取')

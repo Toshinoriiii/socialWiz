@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { wechatTokenService } from '@/lib/services/wechat-token.service'
 import { verify } from 'jsonwebtoken'
 
@@ -23,7 +23,7 @@ function getUserIdFromRequest(request: NextRequest): string | null {
 }
 
 /**
- * GET /api/wechat/token/[configId]
+ * GET /api/platforms/wechat/token/[configId]
  * 测试获取Access Token（用于测试页面）
  */
 export async function GET(

@@ -1,7 +1,7 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 /**
- * GET /api/wechat/server-info
+ * GET /api/platforms/wechat/server-info
  * 
  * 获取服务器公网IP等信息
  * 用于配置指引页面显示IP白名单配置
