@@ -133,6 +133,32 @@ const ChatBotDemo = () => {
     setInput(suggestion);
   };
 
+  // 处理 workflow resume
+  const handleResumeWorkflow = async (runId: string, stepId: string, resumeData: any) => {
+    console.log('[ChatBotDemo] Resuming workflow:', { runId, stepId, resumeData });
+    
+    // 使用友好的消息文本
+    const friendlyMessage = resumeData.needImages 
+      ? '需要配图'
+      : '不需要配图';
+    
+    // 发送 resume 请求
+    sendMessage(
+      { 
+        text: friendlyMessage,
+      },
+      {
+        body: {
+          resumeWorkflow: {
+            runId,
+            stepId,
+            resumeData,
+          },
+        },
+      }
+    );
+  };
+
   return (
     <div className="bg-gray-50 p-4 md:p-6">
       <div className="max-w-5xl mx-auto space-y-4 md:space-y-6">
@@ -210,7 +236,10 @@ const ChatBotDemo = () => {
                                   });
                                   
                                   return hasWorkflowMarker ? (
-                                    <WorkflowMessageRenderer content={content} />
+                                    <WorkflowMessageRenderer 
+                                      content={content} 
+                                      onResumeWorkflow={handleResumeWorkflow}
+                                    />
                                   ) : (
                                     <div className="prose prose-sm max-w-none">
                                       <ReactMarkdown remarkPlugins={[remarkGfm]}>

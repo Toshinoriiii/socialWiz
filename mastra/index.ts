@@ -3,7 +3,6 @@ import { Mastra } from '@mastra/core/mastra';
 import { PinoLogger } from '@mastra/loggers';
 import { LibSQLStore } from '@mastra/libsql';
 import { createOpenAI } from '@ai-sdk/openai';
-import { contentCreationWorkflow } from './workflows/content-creation-workflow';
 import { webSearchAgent } from './agents/web-search-agent';
 import { contentCreationAgent } from './agents/content-creation-agent';
 import { imagePromptAgent } from './agents/image-prompt-agent';
@@ -32,9 +31,6 @@ async function createMastraInstance() {
   }
 
   return new Mastra({
-    workflows: { 
-      contentCreationWorkflow,
-    },
     agents: { 
       intentRouterAgent,
       webSearchAgent,

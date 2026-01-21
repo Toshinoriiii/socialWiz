@@ -3,7 +3,9 @@ import remarkGfm from 'remark-gfm';
 import { WorkflowStep, StepStatus } from './WorkflowStep';
 import { FinalResultCard } from './FinalResultCard';
 import { Badge } from '@/components/ui/badge';
-import { BrainIcon, SparklesIcon } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { BrainIcon, SparklesIcon, ImageIcon, XIcon } from 'lucide-react';
+import { useState } from 'react';
 
 interface WorkflowStepData {
   id: string;
@@ -17,15 +19,20 @@ interface WorkflowStepData {
 
 interface WorkflowMessageRendererProps {
   content: string;
+  onResumeWorkflow?: (runId: string, stepId: string, resumeData: any) => Promise<void>; // 新增: workflow resume 回调
 }
 
 /**
  * 解析包含工作流步骤标记的消息内容
  * 格式: <!--STEP:stepId:START:status-->...<!--STEP:stepId:END:status-->
  */
-export function WorkflowMessageRenderer({ content }: WorkflowMessageRendererProps) {
+export function WorkflowMessageRenderer({ content, onResumeWorkflow }: WorkflowMessageRendererProps) {
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [confirmationHandled, setConfirmationHandled] = useState(false);
+  
   console.log('[WorkflowMessageRenderer] Parsing content, length:', content.length);
   console.log('[WorkflowMessageRenderer] Contains STEP marker:', content.includes('<!--STEP:'));
+  console.log('[WorkflowMessageRenderer] Contains WORKFLOW_SUSPENDED:', content.includes('<!--WORKFLOW_SUSPENDED-->'));
   
   // 先提取意图识别信息(在处理之前)
   const intentMatch = content.match(/<!--INTENT_RECOGNITION_START-->(.*?)<!--INTENT_RECOGNITION_END-->/s);
@@ -80,17 +87,17 @@ export function WorkflowMessageRenderer({ content }: WorkflowMessageRendererProp
     });
 
     // 提取输入
-    const inputMatch = stepContent.match(/<!--STEP:[^:]+:INPUT-->(.*?)<!--STEP:[^:]+:INPUT:END-->/s);
+    const inputMatch = stepContent.match(new RegExp(`<!--STEP:${stepId}:INPUT-->(.*?)<!--STEP:${stepId}:INPUT:END-->`, 's'));
     const input = inputMatch ? inputMatch[1].trim() : undefined;
     
     console.log(`[WorkflowMessageRenderer] Step ${index + 1} input:`, input ? `${input.substring(0, 100)}...` : 'NOT FOUND');
 
     // 提取流式过程内容（支持未结束的流式输出）
-    const streamingMatch = stepContent.match(/<!--STEP:[^:]+:OUTPUT:STREAMING-->(.*?)(?:<!--STEP:[^:]+:OUTPUT:STREAMING:END-->|$)/s);
+    const streamingMatch = stepContent.match(new RegExp(`<!--STEP:${stepId}:OUTPUT:STREAMING-->(.*?)(?:<!--STEP:${stepId}:OUTPUT:STREAMING:END-->|$)`, 's'));
     const streamingOutput = streamingMatch ? streamingMatch[1].trim() : undefined;
     
     // 提取最终输出结果
-    const outputMatch = stepContent.match(/<!--STEP:[^:]+:OUTPUT-->(.*?)(?:<!--STEP:[^:]+:OUTPUT:END-->|$)/s);
+    const outputMatch = stepContent.match(new RegExp(`<!--STEP:${stepId}:OUTPUT-->(.*?)(?:<!--STEP:${stepId}:OUTPUT:END-->|$)`, 's'));
     const output = outputMatch ? outputMatch[1].trim() : undefined;
     
     console.log(`[WorkflowMessageRenderer] Step ${index + 1} (${stepId}):`, {
@@ -134,10 +141,69 @@ export function WorkflowMessageRenderer({ content }: WorkflowMessageRendererProp
   
   // 移除标题部分（如果存在）
   if (finalResult) {
-    finalResult = finalResult.replace(/^##\s*📝\s*最终内容\s*\n+/i, '').trim();
+    // 移除各种格式的标题
+    finalResult = finalResult
+      .replace(/^##\s*📝?\s*最终内容\s*\n+/i, '')
+      .replace(/^##\s*最终内容\s*\n+/i, '')
+      .replace(/^最终内容\s*\n+/i, '')
+      .trim();
   }
   
   console.log('[WorkflowMessageRenderer] Final result:', finalResult ? '找到' : '未找到');
+  console.log('[WorkflowMessageRenderer] Final result preview:', finalResult ? finalResult.substring(0, 200) : null);
+  
+  // 提取 workflow suspended 信息
+  // 格式: <!--WORKFLOW_SUSPENDED:runId:stepId-->
+  const workflowSuspendedMatch = processedContent.match(/<!--WORKFLOW_SUSPENDED:([^:]+):([^>]+)-->/);
+  const workflowSuspended = !!workflowSuspendedMatch;
+  let workflowRunId = '';
+  let workflowStepId = '';
+  
+  if (workflowSuspendedMatch) {
+    workflowRunId = workflowSuspendedMatch[1];
+    workflowStepId = workflowSuspendedMatch[2];
+    
+    console.log('[WorkflowMessageRenderer] Workflow suspended:', {
+      runId: workflowRunId,
+      stepId: workflowStepId,
+    });
+  }
+  
+  const needsConfirmation = workflowSuspended && !confirmationHandled;
+  
+  console.log('[WorkflowMessageRenderer] Needs confirmation:', needsConfirmation);
+  console.log('[WorkflowMessageRenderer] Workflow run ID:', workflowRunId);
+  console.log('[WorkflowMessageRenderer] Workflow step ID:', workflowStepId);
+  
+  // 处理用户确认
+  const handleConfirmation = async (needImages: boolean) => {
+    setIsConfirming(true);
+    setConfirmationHandled(true);
+    
+    try {
+      console.log('[Confirmation] 调用 workflow resume:', {
+        runId: workflowRunId,
+        stepId: workflowStepId,
+        resumeData: { needImages },
+      });
+      
+      if (onResumeWorkflow) {
+        // 调用父组件提供的 resume 回调
+        await onResumeWorkflow(workflowRunId, workflowStepId, { needImages });
+      } else {
+        // 默认行为: 直接调用 API (不推荐,应由父组件处理)
+        console.warn('[Confirmation] onResumeWorkflow 未提供，请在父组件中处理 resume');
+      }
+      
+      setIsConfirming(false);
+    } catch (error) {
+      console.error('[Confirmation] Error:', error);
+      setIsConfirming(false);
+      setConfirmationHandled(false);
+      alert(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  };
+  
   
   // 从剩余内容中移除最终结果标记
   if (finalResult) {
@@ -145,6 +211,11 @@ export function WorkflowMessageRenderer({ content }: WorkflowMessageRendererProp
       .replace(/<!--FINAL_RESULT_START-->.*?<!--FINAL_RESULT_END-->/s, '')
       .trim();
   }
+  
+  // 移除 WORKFLOW 相关标记
+  remainingContent = remainingContent
+    .replace(/<!--WORKFLOW_SUSPENDED:[^>]+-->/g, '')
+    .trim();
 
   return (
     <div className="space-y-6">
@@ -193,6 +264,16 @@ export function WorkflowMessageRenderer({ content }: WorkflowMessageRendererProp
               displayOutputLength: displayOutput?.length || 0
             });
             
+            // 决定是否默认展开：
+            // 1. running 状态的步骤
+            // 2. 有输出内容的步骤（如图片生成、图文混合等）
+            // 3. 图片生成步骤（image-generation）即使没有输出也要展开
+            const shouldDefaultOpen = 
+              step.status === 'running' || 
+              !!displayOutput || 
+              step.id === 'image-generation' ||
+              step.id === 'content-mix';
+            
             return (
               <WorkflowStep
                 key={step.id}
@@ -216,10 +297,53 @@ export function WorkflowMessageRenderer({ content }: WorkflowMessageRendererProp
                     </div>
                   ) : undefined
                 }
-                defaultOpen={step.status === 'running'}  // 只有执行中的步骤默认展开
+                defaultOpen={shouldDefaultOpen}
               />
             );
           })}
+        </div>
+      )}
+
+      {/* 渲染用户确认按钮 */}
+      {needsConfirmation && (
+        <div className="rounded-lg border bg-card p-6 shadow-sm mt-6">
+          <div className="space-y-4">
+            {/* 确认提示文本 */}
+            <div className="prose prose-sm max-w-none">
+              <p className="font-medium">文案已生成完成！</p>
+              <p>是否需要为文案配图？</p>
+            </div>
+            
+            {/* 确认按钮 */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                onClick={() => handleConfirmation(true)}
+                disabled={isConfirming}
+                className="flex-1 bg-black text-white hover:bg-gray-800 transition-all duration-150"
+              >
+                {isConfirming ? (
+                  <>
+                    <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+                    处理中...
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="size-4 mr-2" />
+                    需要生图
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={() => handleConfirmation(false)}
+                disabled={isConfirming}
+                variant="outline"
+                className="flex-1 border-gray-300 text-black hover:bg-gray-100 transition-all duration-150"
+              >
+                <XIcon className="size-4 mr-2" />
+                不需要生图
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
