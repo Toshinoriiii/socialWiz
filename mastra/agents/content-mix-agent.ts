@@ -20,6 +20,17 @@ export const contentMixAgent = new Agent({
 3. **标签**：4-5个SEO关键词标签
 4. **图片 URL 列表**：一个或多个图片的完整地址
 
+### 图片URL格式说明
+
+**极其重要**：你收到的图片URL已经是代理地址，格式为：
+
+    /api/image-proxy?url=https%3A%2F%2F...
+
+- 这些代理URL **已经经过系统处理**，可以直接使用
+- **必须完整保留**整个URL，从 /api/image-proxy?url= 开始到最后一个参数
+- **不要修改或截断**URL的任何部分
+- 直接在 Markdown ![alt](url) 中使用即可
+
 ## 输出格式要求
 
 **极其重要：你必须只返回一个纯粹的 Markdown 格式文档，不要有任何其他文字说明或解释！**
@@ -83,7 +94,7 @@ export const contentMixAgent = new Agent({
 
 ## 注意事项
 
-1. **URL 完整性**：图片 URL 必须从 https:// 开始到最后一个参数，完整不丢失
+1. **URL 完整性**：图片 URL 必须从 /api/image-proxy?url= 开始到最后一个参数，完整不丢失
 2. **直接输出**：不要有"以下是根据你提供的..."等说明性文字
 3. **Markdown 格式**：必须使用标准的 Markdown 语法
 4. **保留结构**：必须保留原文的所有 ### 小标题和段落结构
@@ -96,7 +107,7 @@ export const contentMixAgent = new Agent({
 
 ## 中秋送礼还在买月饼？这届年轻人已经悄悄换赛道了？
 
-![配图](https://example.com/image1.png?param=value)
+![\u914d\u56fe](/api/image-proxy?url=https%3A%2F%2Fexample.com%2Fimage1.png%3Fparam%3Dvalue)
 
 说实话，去年中秋我拎着两盒印着金龙浮雕、沉得像砖头的“高端礼盒”去拜访客户时...
 
@@ -106,7 +117,7 @@ export const contentMixAgent = new Agent({
 
 我翻遍市面上几十款新品...
 
-![配图](https://example.com/image2.png?param=value)
+![\u914d\u56fe](/api/image-proxy?url=https%3A%2F%2Fexample.com%2Fimage2.png%3Fparam%3Dvalue)
 
 最绝的是“云琅礼盒”...
 

@@ -71,6 +71,10 @@ const quickSuggestions = [
   '创作一篇小红书风格的产品推荐',
   '生成一篇微信公众号深度文章',
   '写一篇关于生活方式的感悟',
+  '为新产品发布写一篇营销文案',
+  '撰写一篇职场成长心得分享',
+  '创作一篇美食探店推荐内容',
+  '写一篇旅行攻略和体验分享',
 ];
 
 // 提取消息内容（参考 ops-ai-app）
@@ -132,33 +136,7 @@ const ChatBotDemo = () => {
   return (
     <div className="bg-gray-50 p-4 md:p-6">
       <div className="max-w-5xl mx-auto space-y-4 md:space-y-6">
-        {/* 快速建议卡片 */}
-        {messages.length === 0 && (
-          <Card className="border border-gray-300 bg-white">
-            <CardHeader>
-              <CardTitle className="text-sm font-medium text-black flex items-center gap-2">
-                <FileText className="size-4" />
-                AI 内容创作助手
-              </CardTitle>
-              <CardDescription className="text-gray-600">
-                输入你想创作的内容主题，AI 将自动搜索、生成文案、配图并混合成最终内容
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Suggestions>
-                {quickSuggestions.map((suggestion, index) => (
-                  <Suggestion
-                    key={index}
-                    suggestion={suggestion}
-                    onClick={handleSuggestionClick}
-                    variant="outline"
-                    className="border-gray-300 text-black hover:bg-gray-100 transition-all duration-150"
-                  />
-                ))}
-              </Suggestions>
-            </CardContent>
-          </Card>
-        )}
+        
 
         {/* 聊天对话区域 */}
         <Card className="border border-gray-300 bg-white">
@@ -171,8 +149,8 @@ const ChatBotDemo = () => {
                       <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center mb-4">
                         <FileText className="size-8 text-blue-600" />
                       </div>
-                      <p className="text-gray-800 mb-2 font-medium">开始 AI 内容创作</p>
-                      <p className="text-sm text-gray-500">输入你的内容主题，AI 将为你生成完整的图文内容</p>
+                      <p className="text-gray-800 mb-2 font-medium">AI 内容创作助手</p>
+                      <p className="text-sm text-gray-500">输入你想创作的内容主题,AI 将自动搜索、生成文案、配图并混合成最终内容</p>
                     </div>
                   ) : (
                     messages.map((message, index) => {
@@ -216,17 +194,22 @@ const ChatBotDemo = () => {
                                   <span>正在生成...</span>
                                 </div>
                               ) : (
-                                // 检测是否包含工作流标记
+                                // 检测是否包含工作流或意图识别标记
                                 (() => {
                                   const hasStepMarker = content.includes('<!--STEP:');
+                                  const hasIntentMarker = content.includes('<!--INTENT_RECOGNITION_START-->');
+                                  const hasWorkflowMarker = hasStepMarker || hasIntentMarker;
+                                  
                                   console.log('[ChatMessage] Checking content:', {
                                     messageId: message.id,
                                     contentLength: content.length,
                                     hasStepMarker,
-                                    contentPreview: content.substring(0, 100),
+                                    hasIntentMarker,
+                                    hasWorkflowMarker,
+                                    contentPreview: content.substring(0, 200),
                                   });
                                   
-                                  return hasStepMarker ? (
+                                  return hasWorkflowMarker ? (
                                     <WorkflowMessageRenderer content={content} />
                                   ) : (
                                     <div className="prose prose-sm max-w-none">
@@ -267,6 +250,27 @@ const ChatBotDemo = () => {
               </div>
               
               <Separator className="bg-gray-300" />
+              
+              {/* 快速建议 - 输入框上方 */}
+              {messages.length === 0 && (
+                <div className="p-4 border-b border-gray-200 bg-gray-50">
+                  <div className="mb-2">
+                    <p className="text-xs font-medium text-gray-700 mb-2">💡 快速开始</p>
+                  </div>
+                  <Suggestions>
+                    {quickSuggestions.map((suggestion, index) => (
+                      <Suggestion
+                        key={index}
+                        suggestion={suggestion}
+                        onClick={handleSuggestionClick}
+                        variant="outline"
+                        size="sm"
+                        className="border-gray-300 text-black hover:bg-gray-100 transition-all duration-150 text-xs"
+                      />
+                    ))}
+                  </Suggestions>
+                </div>
+              )}
               
               {/* 输入区域 */}
               <div className="p-4">

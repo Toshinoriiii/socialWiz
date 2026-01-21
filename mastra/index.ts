@@ -8,6 +8,8 @@ import { webSearchAgent } from './agents/web-search-agent';
 import { contentCreationAgent } from './agents/content-creation-agent';
 import { imagePromptAgent } from './agents/image-prompt-agent';
 import { contentMixAgent } from './agents/content-mix-agent';
+import { socialMediaAgent } from './agents/social-media-agent';
+import { intentRouterAgent } from './agents/intent-router-agent';
 import { getMCPClient } from './mcp';
 
 // 创建 DeepSeek LLM 实例
@@ -34,10 +36,12 @@ async function createMastraInstance() {
       contentCreationWorkflow,
     },
     agents: { 
+      intentRouterAgent,
       webSearchAgent,
       contentCreationAgent,
       imagePromptAgent,
       contentMixAgent,
+      socialMediaAgent,
     },
     tools: mcpTools,
     llms: {
