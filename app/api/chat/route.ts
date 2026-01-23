@@ -216,6 +216,15 @@ async function handleWorkflowResume(
 
           console.log('[handleWorkflowResume] 工作流类型:', workflowType);
           console.log('[handleWorkflowResume] 用户选择:', needImages ? '需要配图' : '不需要配图');
+          
+          // 输出意图识别标记（供前端提取 workflowType）
+          // 注意：前端正则匹配 intent 这个词（英文），所以必须包含 "intent" 关键字
+          writer.write({
+            type: 'text-delta',
+            id: textId,
+            delta: `<!--INTENT_RECOGNITION_START-->**intent**: \`${workflowType}\`  
+**类型**: ${workflowType === 'social-media-post' ? '社交媒体图文' : '文章创作'}<!--INTENT_RECOGNITION_END-->\n\n`,
+          });
 
           // 根据工作流类型分发处理
           if (workflowType === 'social-media-post') {
@@ -262,7 +271,68 @@ async function handleWorkflowResume(
 }
 
 /**
- * 处理社交媒体工作流的 Resume
+ * 使用 imageGenerationAgent 生成图片
+ */
+async function generateImageWithAgent(
+  prompt: string,
+  size: string = '1024*1024'
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    const imageAgent = mastra.getAgent('imageGenerationAgent' as any);
+    if (!imageAgent) {
+      return { success: false, error: '图片生成 Agent 未找到' };
+    }
+
+    const agentPrompt = `**图片提示词**: ${prompt}
+
+**尺寸**: ${size}
+
+**数量**: 1`;
+    
+    console.log('[generateImageWithAgent] 调用 imageGenerationAgent');
+    const result = await imageAgent.generate([{
+      role: 'user',
+      content: agentPrompt,
+    }]);
+
+    console.log('[generateImageWithAgent] Agent 返回:', result);
+    
+    // 解析 Agent 返回的结果
+    const responseText = result.text || '';
+    
+    // 尝试从 JSON 格式提取
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*"success"[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.success && parsed.images && parsed.images.length > 0) {
+          return { success: true, url: parsed.images[0].url };
+        } else if (!parsed.success) {
+          return { success: false, error: parsed.error || '生成失败' };
+        }
+      }
+    } catch (e) {
+      console.warn('[generateImageWithAgent] JSON 解析失败，尝试其他方式');
+    }
+    
+    // 尝试直接提取 URL
+    const urlMatch = responseText.match(/https?:\/\/[^\s"\)]+/);
+    if (urlMatch) {
+      return { success: true, url: urlMatch[0] };
+    }
+    
+    return { success: false, error: '未能提取图片 URL' };
+  } catch (error) {
+    console.error('[generateImageWithAgent] 错误:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : '生成失败' 
+    };
+  }
+}
+
+/**
+ * 处理社交媒体内容工作流的 Resume
  */
 async function handleSocialMediaResume(
   writer: any,
@@ -271,34 +341,67 @@ async function handleSocialMediaResume(
   fullContent: string
 ) {
   if (!needImages) {
-    // 用户选择不需要配图，直接输出文案
+    // 用户选择不需要配图，使用格式化 Agent 清理文案
     writer.write({
       type: 'text-delta',
       id: textId,
       delta: '✅ 用户选择不需要配图\n\n',
     });
 
-    // 显示最终内容
+    // 步骤 3: 内容格式化
+    const step3Id = 'content-formatting';
+    console.log('[handleSocialMediaResume] 步骤 3: 开始内容格式化（无配图）');
+    
     writer.write({
       type: 'text-delta',
       id: textId,
-      delta: '<!--FINAL_RESULT_START-->\n## 最终内容\n\n',
-    });
+      delta: `<!--STEP:${step3Id}:START:running-->步骤 3/3: 内容格式化
+AI 正在整理最终输出格式...
+<!--STEP:${step3Id}:INPUT-->
+\`\`\`json
+${JSON.stringify({ 
+        contentLength: fullContent.length,
+        imagesCount: 0 
+      }, null, 2)}
+\`\`\`
+<!--STEP:${step3Id}:INPUT:END-->
 
-    writer.write({
-      type: 'text-delta',
-      id: textId,
-      delta: fullContent,
+`,
     });
-
-    writer.write({
-      type: 'text-delta',
-      id: textId,
-      delta: '\n<!--FINAL_RESULT_END-->',
-    });
+    
+    const contentFormatterAgent = mastra.getAgent('contentFormatterAgent' as any);
+    if (!contentFormatterAgent) {
+      throw new Error('contentFormatterAgent 未找到');
+    }
+    
+    // 构造格式化 Agent 的输入
+    const formatterInput = `请格式化以下社交媒体文案，去除所有格式标签，直接输出干净的内容。\n\n文案内容：\n${fullContent}`;
+    
+    // 调用格式化 Agent（流式输出）
+    writer.write({ type: 'text-delta', id: textId, delta: `<!--STEP:${step3Id}:OUTPUT:STREAMING-->` });
+    
+    const formatterStream = await contentFormatterAgent.stream([{
+      role: 'user',
+      content: formatterInput,
+    }]);
+    
+    let formattedContent = '';
+    for await (const chunk of formatterStream.textStream) {
+      formattedContent += chunk;
+      writer.write({ type: 'text-delta', id: textId, delta: chunk });
+    }
+    
+    writer.write({ type: 'text-delta', id: textId, delta: `<!--STEP:${step3Id}:OUTPUT:STREAMING:END-->\n<!--STEP:${step3Id}:END:completed-->\n\n` });
+    
+    console.log('[handleSocialMediaResume] 格式化完成（无配图），内容长度:', formattedContent.length);
+    
+    // 最终结果：使用格式化后的内容
+    writer.write({ type: 'text-delta', id: textId, delta: '<!--FINAL_RESULT_START-->\n' });
+    writer.write({ type: 'text-delta', id: textId, delta: formattedContent });
+    writer.write({ type: 'text-delta', id: textId, delta: '\n<!--FINAL_RESULT_END-->' });
 
     writer.write({ type: 'text-end', id: textId });
-    console.log('[handleSocialMediaResume] 不需要配图，直接输出文案');
+    console.log('[handleSocialMediaResume] 不需要配图，文案格式化完成');
   } else {
     // 用户选择需要配图，执行配图流程
     writer.write({
@@ -411,133 +514,97 @@ ${JSON.stringify({ imagePrompts: imagePrompts.map(p => ({ order: p.order, descri
     });
 
     if (imagePrompts.length > 0) {
-      try {
-        const mcpClient = getMCPClient();
-        const allTools = await mcpClient.getTools();
-        const imageToolEntry = Object.entries(allTools).find(
-          ([name]) => name.toLowerCase().includes('image')
-        );
+      for (let i = 0; i < imagePrompts.length; i++) {
+        const imagePrompt = imagePrompts[i];
+        console.log(`[handleSocialMediaResume 步骤 4] 开始生成第 ${i + 1}/${imagePrompts.length} 张图片`);
+        
+        const imageStartText = `\n**[图片 ${i + 1}/${imagePrompts.length}] ${imagePrompt.description}**\n正在生成...\n`;
+        writer.write({ type: 'text-delta', id: textId, delta: imageStartText });
 
-        if (!imageToolEntry) {
-          writer.write({ type: 'text-delta', id: textId, delta: '❌ 图片生成工具不可用\n' });
-        } else {
-          const [toolName, imageTool] = imageToolEntry;
-          console.log('[handleSocialMediaResume 步骤 4] 使用图片生成工具:', toolName);
+        try {
+          // 使用 imageGenerationAgent 生成图片
+          const result = await generateImageWithAgent(imagePrompt.prompt, '1024*1024');
           
-          for (let i = 0; i < imagePrompts.length; i++) {
-            const imagePrompt = imagePrompts[i];
-            console.log(`[handleSocialMediaResume 步骤 4] 开始生成第 ${i + 1}/${imagePrompts.length} 张图片`);
-            
-            const imageStartText = `\n**[图片 ${i + 1}/${imagePrompts.length}] ${imagePrompt.description}**\n正在生成...\n`;
-            writer.write({ type: 'text-delta', id: textId, delta: imageStartText });
-
-            try {
-              const toolArgs = { prompt: imagePrompt.prompt, size: '1024*1024', n: 1 };
-              const imageResult = await imageTool.execute({ context: toolArgs });
-              
-              let imageUrl = '';
-              if (typeof imageResult === 'string') {
-                imageUrl = imageResult;
-              } else if (typeof imageResult === 'object' && imageResult !== null) {
-                const result = imageResult as any;
-                if (Array.isArray(result.content) && result.content.length > 0) {
-                  const firstContent = result.content[0];
-                  if (firstContent.type === 'text' && typeof firstContent.text === 'string') {
-                    const textContent = firstContent.text.trim();
-                    
-                    if (textContent.startsWith('Error') || textContent.startsWith('error') || textContent.startsWith('ERROR')) {
-                      let friendlyError = '图片生成失败';
-                      if (textContent.includes('Arrearage') || textContent.includes('overdue-payment')) {
-                        friendlyError = '图片生成服务账户余额不足';
-                      } else if (textContent.includes('Access denied')) {
-                        friendlyError = '图片生成服务访问受限';
-                      }
-                      throw new Error(friendlyError);
-                    }
-                    
-                    try {
-                      const parsedText = JSON.parse(textContent);
-                      if (Array.isArray(parsedText.results) && parsedText.results.length > 0) {
-                        imageUrl = parsedText.results[0];
-                      }
-                    } catch (e) { 
-                      if (textContent.startsWith('http://') || textContent.startsWith('https://')) {
-                        imageUrl = textContent;
-                      }
-                    }
-                  }
-                }
-                if (!imageUrl && result.text && typeof result.text === 'string') {
-                  const textContent = result.text.trim();
-                  
-                  if (textContent.startsWith('Error') || textContent.startsWith('error') || textContent.startsWith('ERROR')) {
-                    let friendlyError = '图片生成失败';
-                    if (textContent.includes('Arrearage') || textContent.includes('overdue-payment')) {
-                      friendlyError = '图片生成服务账户余额不足';
-                    } else if (textContent.includes('Access denied')) {
-                      friendlyError = '图片生成服务访问受限';
-                    }
-                    throw new Error(friendlyError);
-                  }
-                  
-                  try {
-                    const parsedText = JSON.parse(textContent);
-                    if (Array.isArray(parsedText.results) && parsedText.results.length > 0) {
-                      imageUrl = parsedText.results[0];
-                    }
-                  } catch (e) { 
-                    if (textContent.startsWith('http://') || textContent.startsWith('https://')) {
-                      imageUrl = textContent;
-                    }
-                  }
-                }
-                if (!imageUrl) {
-                  imageUrl = result.url || result.imageUrl || result.image_url || result.data?.url || result.output?.url || '';
-                  if (Array.isArray(result.images) && result.images.length > 0) {
-                    imageUrl = result.images[0].url || result.images[0];
-                  }
-                  if (Array.isArray(result.results) && result.results.length > 0) {
-                    imageUrl = result.results[0];
-                  }
-                }
-              }
-
-              const proxyUrl = imageUrl ? `/api/image-proxy?url=${encodeURIComponent(imageUrl)}` : '';
-              if (proxyUrl) {
-                generatedImages.push({ order: imagePrompt.order, url: imageUrl, proxyUrl: proxyUrl, description: imagePrompt.description });
-                writer.write({ type: 'text-delta', id: textId, delta: `✅ 生成成功\n![图片${imagePrompt.order}](${proxyUrl})\n` });
-              } else {
-                writer.write({ type: 'text-delta', id: textId, delta: `❌ 未能提取图片 URL\n` });
-              }
-            } catch (error) {
-              console.error(`[handleSocialMediaResume 步骤 4] 图片 ${i + 1} 生成错误:`, error);
-              const errorMessage = error instanceof Error ? error.message : '生成失败';
-              writer.write({ type: 'text-delta', id: textId, delta: `❌ ${errorMessage}\n` });
-            }
+          if (result.success && result.url) {
+            const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(result.url)}`;
+            generatedImages.push({ 
+              order: imagePrompt.order, 
+              url: result.url, 
+              proxyUrl: proxyUrl, 
+              description: imagePrompt.description 
+            });
+            writer.write({ type: 'text-delta', id: textId, delta: `✅ 生成成功\n![图片${imagePrompt.order}](${proxyUrl})\n` });
+          } else {
+            writer.write({ type: 'text-delta', id: textId, delta: `❌ ${result.error || '生成失败'}\n` });
           }
-          writer.write({ type: 'text-delta', id: textId, delta: `\n**生成结果**：成功 ${generatedImages.length}/${imagePrompts.length} 张\n` });
+        } catch (error) {
+          console.error(`[handleSocialMediaResume 步骤 4] 图片 ${i + 1} 生成错误:`, error);
+          const errorMessage = error instanceof Error ? error.message : '生成失败';
+          writer.write({ type: 'text-delta', id: textId, delta: `❌ ${errorMessage}\n` });
         }
-      } catch (error) {
-        console.error('[handleSocialMediaResume 步骤 4] 图片生成过程错误:', error);
-        writer.write({ type: 'text-delta', id: textId, delta: `❌ 图片生成失败\n` });
       }
+      writer.write({ type: 'text-delta', id: textId, delta: `\n**生成结果**：成功 ${generatedImages.length}/${imagePrompts.length} 张\n` });
     }
 
     writer.write({ type: 'text-delta', id: textId, delta: `<!--STEP:${step4Id}:OUTPUT:STREAMING:END-->\n<!--STEP:${step4Id}:END:completed-->\n\n` });
 
-    // 最终结果:文案 + 图集
-    writer.write({ type: 'text-delta', id: textId, delta: '<!--FINAL_RESULT_START-->\n## 最终内容\n\n' });
-    writer.write({ type: 'text-delta', id: textId, delta: fullContent + '\n\n' });
+    // 步骤 5: 内容格式化
+    const step5Id = 'content-formatting';
+    console.log('[handleSocialMediaResume] 步骤 5: 开始内容格式化');
+    
+    writer.write({
+      type: 'text-delta',
+      id: textId,
+      delta: `<!--STEP:${step5Id}:START:running-->步骤 5/5: 内容格式化
+AI 正在整理最终输出格式...
+<!--STEP:${step5Id}:INPUT-->
+\`\`\`json
+${JSON.stringify({ 
+        contentLength: fullContent.length,
+        imagesCount: generatedImages.length 
+      }, null, 2)}
+\`\`\`
+<!--STEP:${step5Id}:INPUT:END-->
 
-    if (generatedImages.length > 0) {
-      writer.write({ type: 'text-delta', id: textId, delta: '---\n\n### 配图集\n\n' });
-      for (const img of generatedImages) {
-        writer.write({ type: 'text-delta', id: textId, delta: `![图片${img.order} - ${img.description}](${img.proxyUrl})\n\n` });
-      }
-    } else if (imagePrompts.length > 0) {
-      writer.write({ type: 'text-delta', id: textId, delta: '\n---\n\n> ⚠️ 提示: 配图生成失败,但文案内容已生成完成。\n\n' });
+`,
+    });
+    
+    const contentFormatterAgent = mastra.getAgent('contentFormatterAgent' as any);
+    if (!contentFormatterAgent) {
+      throw new Error('contentFormatterAgent 未找到');
     }
     
+    // 构造格式化 Agent 的输入
+    let formatterInput = `请格式化以下社交媒体文案，去除所有格式标签，直接输出干净的内容。\n\n文案内容：\n${fullContent}`;
+    
+    if (generatedImages.length > 0) {
+      formatterInput += `\n\n配图列表：\n`;
+      generatedImages.forEach(img => {
+        formatterInput += `- 图片${img.order}: ${img.description}\n  URL: ${img.proxyUrl}\n`;
+      });
+    }
+    
+    // 调用格式化 Agent（流式输出）
+    writer.write({ type: 'text-delta', id: textId, delta: `<!--STEP:${step5Id}:OUTPUT:STREAMING-->` });
+    
+    const formatterStream = await contentFormatterAgent.stream([{
+      role: 'user',
+      content: formatterInput,
+    }]);
+    
+    let formattedContent = '';
+    for await (const chunk of formatterStream.textStream) {
+      formattedContent += chunk;
+      writer.write({ type: 'text-delta', id: textId, delta: chunk });
+    }
+    
+    writer.write({ type: 'text-delta', id: textId, delta: `<!--STEP:${step5Id}:OUTPUT:STREAMING:END-->\n<!--STEP:${step5Id}:END:completed-->\n\n` });
+    
+    console.log('[handleSocialMediaResume] 格式化完成，内容长度:', formattedContent.length);
+    
+    // 最终结果：使用格式化后的内容
+    writer.write({ type: 'text-delta', id: textId, delta: '<!--FINAL_RESULT_START-->\n' });
+    writer.write({ type: 'text-delta', id: textId, delta: formattedContent });
     writer.write({ type: 'text-delta', id: textId, delta: '\n<!--FINAL_RESULT_END-->' });
 
     writer.write({ type: 'text-end', id: textId });
@@ -630,11 +697,11 @@ ${JSON.stringify({
       delta: '---\n\n',
     });
 
-    // 显示最终内容
+    // 最终结果（移除标题）
     writer.write({
       type: 'text-delta',
       id: textId,
-      delta: '<!--FINAL_RESULT_START-->\n## 最终内容\n\n',
+      delta: '<!--FINAL_RESULT_START-->\n',
     });
 
     writer.write({
@@ -783,127 +850,45 @@ ${JSON.stringify({ imagePrompts: imagePrompts.map(p => ({ order: p.order, descri
     });
 
     if (imagePrompts.length > 0) {
-      try {
-        const mcpClient = getMCPClient();
-        const allTools = await mcpClient.getTools();
-        const imageToolEntry = Object.entries(allTools).find(
-          ([name]) => name.toLowerCase().includes('image')
-        );
+      for (let i = 0; i < imagePrompts.length; i++) {
+        const imagePrompt = imagePrompts[i];
+        console.log(`[handleContentCreationResume 步骤 4] 开始生成第 ${i + 1}/${imagePrompts.length} 张图片:`, imagePrompt.description);
+        
+        const imageStartText = `\n**[图片 ${i + 1}/${imagePrompts.length}] ${imagePrompt.description}**\n正在生成...\n`;
+        console.log(`[handleContentCreationResume 步骤 4] 发送图片进度:`, imageStartText);
+        
+        writer.write({ type: 'text-delta', id: textId, delta: imageStartText });
 
-        if (!imageToolEntry) {
-          writer.write({ type: 'text-delta', id: textId, delta: '❌ 图片生成工具不可用\n' });
-        } else {
-          const [toolName, imageTool] = imageToolEntry;
-          console.log('[handleContentCreationResume 步骤 4] 使用图片生成工具:', toolName);
+        try {
+          // 使用 imageGenerationAgent 生成图片
+          const result = await generateImageWithAgent(imagePrompt.prompt, '1024*1024');
           
-          for (let i = 0; i < imagePrompts.length; i++) {
-            const imagePrompt = imagePrompts[i];
-            console.log(`[handleContentCreationResume 步骤 4] 开始生成第 ${i + 1}/${imagePrompts.length} 张图片:`, imagePrompt.description);
-            
-            const imageStartText = `\n**[图片 ${i + 1}/${imagePrompts.length}] ${imagePrompt.description}**\n正在生成...\n`;
-            console.log(`[handleContentCreationResume 步骤 4] 发送图片进度:`, imageStartText);
-            
-            writer.write({ type: 'text-delta', id: textId, delta: imageStartText });
-
-            try {
-              const toolArgs = { prompt: imagePrompt.prompt, size: '1024*1024', n: 1 };
-              const imageResult = await imageTool.execute({ context: toolArgs });
-              
-              let imageUrl = '';
-              if (typeof imageResult === 'string') {
-                imageUrl = imageResult;
-              } else if (typeof imageResult === 'object' && imageResult !== null) {
-                const result = imageResult as any;
-                if (Array.isArray(result.content) && result.content.length > 0) {
-                  const firstContent = result.content[0];
-                  if (firstContent.type === 'text' && typeof firstContent.text === 'string') {
-                    const textContent = firstContent.text.trim();
-                    
-                    // 检测错误
-                    if (textContent.startsWith('Error') || textContent.startsWith('error') || textContent.startsWith('ERROR')) {
-                      let friendlyError = '图片生成失败';
-                      if (textContent.includes('Arrearage') || textContent.includes('overdue-payment')) {
-                        friendlyError = '图片生成服务账户余额不足';
-                      } else if (textContent.includes('Access denied')) {
-                        friendlyError = '图片生成服务访问受限';
-                      }
-                      throw new Error(friendlyError);
-                    }
-                    
-                    try {
-                      const parsedText = JSON.parse(textContent);
-                      if (Array.isArray(parsedText.results) && parsedText.results.length > 0) {
-                        imageUrl = parsedText.results[0];
-                      }
-                    } catch (e) { 
-                      if (textContent.startsWith('http://') || textContent.startsWith('https://')) {
-                        imageUrl = textContent;
-                      }
-                    }
-                  }
-                }
-                if (!imageUrl && result.text && typeof result.text === 'string') {
-                  const textContent = result.text.trim();
-                  
-                  // 检测错误
-                  if (textContent.startsWith('Error') || textContent.startsWith('error') || textContent.startsWith('ERROR')) {
-                    let friendlyError = '图片生成失败';
-                    if (textContent.includes('Arrearage') || textContent.includes('overdue-payment')) {
-                      friendlyError = '图片生成服务账户余额不足';
-                    } else if (textContent.includes('Access denied')) {
-                      friendlyError = '图片生成服务访问受限';
-                    }
-                    throw new Error(friendlyError);
-                  }
-                  
-                  try {
-                    const parsedText = JSON.parse(textContent);
-                    if (Array.isArray(parsedText.results) && parsedText.results.length > 0) {
-                      imageUrl = parsedText.results[0];
-                    }
-                  } catch (e) { 
-                    if (textContent.startsWith('http://') || textContent.startsWith('https://')) {
-                      imageUrl = textContent;
-                    }
-                  }
-                }
-                if (!imageUrl) {
-                  imageUrl = result.url || result.imageUrl || result.image_url || result.data?.url || result.output?.url || '';
-                  if (Array.isArray(result.images) && result.images.length > 0) {
-                    imageUrl = result.images[0].url || result.images[0];
-                  }
-                  if (Array.isArray(result.results) && result.results.length > 0) {
-                    imageUrl = result.results[0];
-                  }
-                }
-              }
-
-              const proxyUrl = imageUrl ? `/api/image-proxy?url=${encodeURIComponent(imageUrl)}` : '';
-              if (proxyUrl) {
-                generatedImages.push({ order: imagePrompt.order, url: imageUrl, proxyUrl: proxyUrl, description: imagePrompt.description });
-                const successText = `✅ 生成成功\n![图片${imagePrompt.order}](${proxyUrl})\n`;
-                console.log(`[handleContentCreationResume 步骤 4] 图片 ${i + 1} 生成成功:`, successText);
-                writer.write({ type: 'text-delta', id: textId, delta: successText });
-              } else {
-                console.log(`[handleContentCreationResume 步骤 4] 图片 ${i + 1} 失败: 未能提取 URL`);
-                writer.write({ type: 'text-delta', id: textId, delta: `❌ 未能提取图片 URL\n` });
-              }
-            } catch (error) {
-              console.error(`[handleContentCreationResume 步骤 4] 图片 ${i + 1} 生成错误:`, error);
-              const errorMessage = error instanceof Error ? error.message : '生成失败';
-              const errorText = `❌ ${errorMessage}\n`;
-              console.log(`[handleContentCreationResume 步骤 4] 发送错误信息:`, errorText);
-              writer.write({ type: 'text-delta', id: textId, delta: errorText });
-            }
+          if (result.success && result.url) {
+            const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(result.url)}`;
+            generatedImages.push({ 
+              order: imagePrompt.order, 
+              url: result.url, 
+              proxyUrl: proxyUrl, 
+              description: imagePrompt.description 
+            });
+            const successText = `✅ 生成成功\n![图片${imagePrompt.order}](${proxyUrl})\n`;
+            console.log(`[handleContentCreationResume 步骤 4] 图片 ${i + 1} 生成成功:`, successText);
+            writer.write({ type: 'text-delta', id: textId, delta: successText });
+          } else {
+            console.log(`[handleContentCreationResume 步骤 4] 图片 ${i + 1} 失败:`, result.error);
+            writer.write({ type: 'text-delta', id: textId, delta: `❌ ${result.error || '生成失败'}\n` });
           }
-          const summaryText = `\n**生成结果**：成功 ${generatedImages.length}/${imagePrompts.length} 张\n`;
-          console.log('[handleContentCreationResume 步骤 4] 发送生成结果汇总:', summaryText);
-          writer.write({ type: 'text-delta', id: textId, delta: summaryText });
+        } catch (error) {
+          console.error(`[handleContentCreationResume 步骤 4] 图片 ${i + 1} 生成错误:`, error);
+          const errorMessage = error instanceof Error ? error.message : '生成失败';
+          const errorText = `❌ ${errorMessage}\n`;
+          console.log(`[handleContentCreationResume 步骤 4] 发送错误信息:`, errorText);
+          writer.write({ type: 'text-delta', id: textId, delta: errorText });
         }
-      } catch (error) {
-        console.error('[handleContentCreationResume 步骤 4] 图片生成过程错误:', error);
-        writer.write({ type: 'text-delta', id: textId, delta: `❌ 图片生成失败\n` });
       }
+      const summaryText = `\n**生成结果**：成功 ${generatedImages.length}/${imagePrompts.length} 张\n`;
+      console.log('[handleContentCreationResume 步骤 4] 发送生成结果汇总:', summaryText);
+      writer.write({ type: 'text-delta', id: textId, delta: summaryText });
     }
 
     // 结束流式输出
@@ -983,8 +968,8 @@ ${imageDescriptions}
       delta: `<!--STEP:${step5Id}:OUTPUT:STREAMING:END-->\n<!--STEP:${step5Id}:END:completed-->\n\n`,
     });
 
-    // 最终结果: 使用混合后的内容
-    writer.write({ type: 'text-delta', id: textId, delta: '<!--FINAL_RESULT_START-->\n## 最终内容\n\n' });
+    // 最终结果：使用混合后的内容（移除标题）
+    writer.write({ type: 'text-delta', id: textId, delta: '<!--FINAL_RESULT_START-->\n' });
     writer.write({ type: 'text-delta', id: textId, delta: mixedContent || fullContent }); // 如果混合失败，使用原始文案
     writer.write({ type: 'text-delta', id: textId, delta: '\n<!--FINAL_RESULT_END-->' });
 
@@ -1273,68 +1258,14 @@ ${JSON.stringify({ prompt: imagePromptData.prompt, aspect_ratio: imagePromptData
   });
 
   try {
-    const mcpClient = getMCPClient();
-    const allTools = await mcpClient.getTools();
-    const imageToolEntry = Object.entries(allTools).find(
-      ([name]) => name.toLowerCase().includes('image')
+    // 使用 imageGenerationAgent 生成图片
+    const result = await generateImageWithAgent(
+      imagePromptData.prompt, 
+      imagePromptData.aspectRatio === '16:9' ? '1024*576' : '1024*1024'
     );
 
-    if (imageToolEntry) {
-      const [toolName, imageTool] = imageToolEntry;
-      const toolArgs = {
-        prompt: imagePromptData.prompt,
-        aspect_ratio: imagePromptData.aspectRatio || '1:1',
-      };
-      const imageResult = await imageTool.execute({ context: toolArgs });
-      
-      // 提取图片 URL
-      let imageUrl = '';
-      
-      if (typeof imageResult === 'string') {
-        imageUrl = imageResult;
-      } else if (typeof imageResult === 'object' && imageResult !== null) {
-        const result = imageResult as any;
-        
-        if (Array.isArray(result.content) && result.content.length > 0) {
-          const firstContent = result.content[0];
-          if (firstContent.type === 'text' && typeof firstContent.text === 'string') {
-            try {
-              const parsedText = JSON.parse(firstContent.text);
-              if (Array.isArray(parsedText.results) && parsedText.results.length > 0) {
-                imageUrl = parsedText.results[0];
-              }
-            } catch (e) {
-              console.error('[Image Generation] Failed to parse:', e);
-            }
-          }
-        }
-        
-        if (!imageUrl && result.text && typeof result.text === 'string') {
-          try {
-            const parsedText = JSON.parse(result.text);
-            if (Array.isArray(parsedText.results) && parsedText.results.length > 0) {
-              imageUrl = parsedText.results[0];
-            }
-          } catch (e) {
-            console.error('[Image Generation] Failed to parse text:', e);
-          }
-        }
-        
-        if (!imageUrl) {
-          imageUrl = result.url || result.imageUrl || result.image_url || 
-                    result.data?.url || result.output?.url || '';
-          
-          if (Array.isArray(result.images) && result.images.length > 0) {
-            imageUrl = result.images[0].url || result.images[0];
-          }
-          
-          if (Array.isArray(result.results) && result.results.length > 0) {
-            imageUrl = result.results[0];
-          }
-        }
-      }
-      
-      const proxyUrl = imageUrl ? `/api/image-proxy?url=${encodeURIComponent(imageUrl)}` : '';
+    if (result.success && result.url) {
+      const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(result.url)}`;
       
       writer.write({
         type: 'text-delta',
@@ -1344,14 +1275,14 @@ ${JSON.stringify({ prompt: imagePromptData.prompt, aspect_ratio: imagePromptData
 \`\`\`json
 ${JSON.stringify({ 
   success: true,
-  originalUrl: imageUrl,
+  originalUrl: result.url,
   proxyUrl: proxyUrl
 }, null, 2)}
 \`\`\`
 
 **生成的图片**：
 
-${proxyUrl ? `![生成的图片](${proxyUrl})` : '未能提取图片 URL'}
+![生成的图片](${proxyUrl})
 
 <!--STEP:${step2Id}:OUTPUT:END-->
 <!--STEP:${step2Id}:END:completed-->
@@ -1375,7 +1306,7 @@ ${proxyUrl ? `![生成的图片](${proxyUrl})` : '未能提取图片 URL'}
       writer.write({
         type: 'text-delta',
         id: textId,
-        delta: proxyUrl ? `![生成的图片](${proxyUrl})` : '图片生成失败',
+        delta: `![生成的图片](${proxyUrl})`,
       });
       
       writer.write({
@@ -1387,7 +1318,7 @@ ${proxyUrl ? `![生成的图片](${proxyUrl})` : '未能提取图片 URL'}
       writer.write({
         type: 'text-delta',
         id: textId,
-        delta: `<!--STEP:${step2Id}:OUTPUT-->未找到图片生成工具<!--STEP:${step2Id}:OUTPUT:END-->\n<!--STEP:${step2Id}:END:error-->\n\n`,
+        delta: `<!--STEP:${step2Id}:OUTPUT-->图片生成失败: ${result.error}<!--STEP:${step2Id}:OUTPUT:END-->\n<!--STEP:${step2Id}:END:error-->\n\n`,
       });
     }
   } catch (error) {
@@ -1415,7 +1346,7 @@ async function executeSocialMediaPostInStream(writer: any, textId: string, promp
   writer.write({
     type: 'text-delta',
     id: textId,
-    delta: '工作流包含 2 个步骤: 联网搜索 → 文案生成 → 人工确认\n\n',
+    delta: '工作流包含 3 个步骤: 联网搜索 → 文案生成 → 人工确认\n\n',
   });
 
   writer.write({
@@ -1426,10 +1357,12 @@ async function executeSocialMediaPostInStream(writer: any, textId: string, promp
 
   // 步骤 1: 联网搜索
   const step1Id = 'web-search';
+  console.log('[executeSocialMediaPostInStream] 开始步骤 1: 联网搜索');
+  
   writer.write({
     type: 'text-delta',
     id: textId,
-    delta: `<!--STEP:${step1Id}:START:running-->步骤 1/2: 联网搜索
+    delta: `<!--STEP:${step1Id}:START:running-->步骤 1/3: 联网搜索
 正在搜索相关信息...
 <!--STEP:${step1Id}:INPUT-->
 \`\`\`json
@@ -1442,14 +1375,19 @@ ${JSON.stringify({ query: prompt, purpose: '社交媒体内容创作' }, null, 2
 
   const webSearchAgent = mastra.getAgent('webSearchAgent' as any);
   if (!webSearchAgent) {
+    console.error('[executeSocialMediaPostInStream] webSearchAgent 未找到');
     throw new Error('webSearchAgent 未找到');
   }
+  
+  console.log('[executeSocialMediaPostInStream] 调用 webSearchAgent.stream');
   
   // Agent的instructions已包含所有业务逻辑，只需传递数据
   const searchStream = await webSearchAgent.stream([{
     role: 'user',
     content: `搜索主题: ${prompt}\n\n用途: 社交媒体内容创作`,
   }]);
+
+  console.log('[executeSocialMediaPostInStream] webSearchAgent.stream 返回成功');
   
   let searchResults = '';
   writer.write({
@@ -1467,6 +1405,8 @@ ${JSON.stringify({ query: prompt, purpose: '社交媒体内容创作' }, null, 2
     });
   }
 
+  console.log('[executeSocialMediaPostInStream] 搜索完成，结果长度:', searchResults.length);
+
   writer.write({
     type: 'text-delta',
     id: textId,
@@ -1478,6 +1418,8 @@ ${JSON.stringify({ query: prompt, purpose: '社交媒体内容创作' }, null, 2
 
   // 步骤 2: 生成社交媒体文案
   const step2Id = 'social-media-content';
+  console.log('[executeSocialMediaPostInStream] 开始步骤 2: 生成文案');
+  
   writer.write({
     type: 'text-delta',
     id: textId,
@@ -1494,14 +1436,19 @@ ${JSON.stringify({ topic: prompt, platform: '社交媒体', targetLength: '300-6
 
   const socialMediaAgent = mastra.getAgent('socialMediaAgent' as any);
   if (!socialMediaAgent) {
+    console.error('[executeSocialMediaPostInStream] socialMediaAgent 未找到');
     throw new Error('socialMediaAgent 未找到');
   }
+  
+  console.log('[executeSocialMediaPostInStream] 调用 socialMediaAgent.stream');
   
   // 只传递数据参数，让Agent的instructions发挥作用
   const contentStream = await socialMediaAgent.stream([{
     role: 'user',
     content: `主题：${prompt}\n\n背景信息：\n${searchResults || '暂无'}`,
   }]);
+
+  console.log('[executeSocialMediaPostInStream] socialMediaAgent.stream 返回成功');
 
   let fullContent = '';
   writer.write({
@@ -1518,6 +1465,8 @@ ${JSON.stringify({ topic: prompt, platform: '社交媒体', targetLength: '300-6
       delta: chunk,
     });
   }
+
+  console.log('[executeSocialMediaPostInStream] 文案生成完成，长度:', fullContent.length);
 
   writer.write({
     type: 'text-delta',

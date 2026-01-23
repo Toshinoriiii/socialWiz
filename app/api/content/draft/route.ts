@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { id, title, content } = body
+    const { id, title, content, coverImage, images, aiGenerated } = body
 
     // 验证输入
     if (!title || !title.trim()) {
@@ -67,6 +67,9 @@ export async function POST(request: NextRequest) {
         data: {
           title: title.trim(),
           content: content.trim(),
+          coverImage: coverImage || null,
+          images: images || [],
+          aiGenerated: aiGenerated !== undefined ? aiGenerated : existingDraft.aiGenerated,
           updatedAt: new Date()
         }
       })
@@ -76,6 +79,9 @@ export async function POST(request: NextRequest) {
           userId: user.id,
           title: title.trim(),
           content: content.trim(),
+          coverImage: coverImage || null,
+          images: images || [],
+          aiGenerated: aiGenerated || false,
           status: 'DRAFT'
         }
       })
@@ -87,6 +93,9 @@ export async function POST(request: NextRequest) {
         id: draft.id,
         title: draft.title,
         content: draft.content,
+        coverImage: draft.coverImage,
+        images: draft.images,
+        aiGenerated: draft.aiGenerated,
         status: draft.status,
         createdAt: draft.createdAt,
         updatedAt: draft.updatedAt

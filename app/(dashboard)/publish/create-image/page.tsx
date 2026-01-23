@@ -45,7 +45,7 @@ export default function CreateImagePage() {
 
     try {
       setLoading(true)
-      const response = await fetch(`/api/content/image-text-draft?id=${id}`, {
+      const response = await fetch(`/api/content/draft/${id}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -55,7 +55,7 @@ export default function CreateImagePage() {
         const data = await response.json()
         if (data.draft) {
           setTitle(data.draft.title || '')
-          setDescription(data.draft.description || '')
+          setDescription(data.draft.content || '') // content 映射到 description
           setImages(data.draft.images || [])
         }
       } else {
@@ -178,7 +178,7 @@ export default function CreateImagePage() {
     try {
       setSaving(true)
 
-      const response = await fetch('/api/content/image-text-draft', {
+      const response = await fetch('/api/content/draft', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -187,7 +187,7 @@ export default function CreateImagePage() {
         body: JSON.stringify({
           id: draftId || undefined,
           title: title.trim(),
-          description: description.trim(),
+          content: description.trim(), // description 映射到 content
           images: images
         })
       })

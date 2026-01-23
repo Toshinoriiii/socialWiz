@@ -1,11 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { CopyIcon, RefreshCcwIcon, Sparkles, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
+import { useUserStore } from '@/store/user.store';
 import {
   Conversation,
   ConversationContent,
@@ -90,6 +92,8 @@ const getMessageContent = (message: any) => {
 };
 
 const ChatBotDemo = () => {
+  const router = useRouter();
+  const { token } = useUserStore();
   const [input, setInput] = useState('');
   const { messages, sendMessage, status, regenerate, setMessages } = useChat({
     api: '/api/chat',
@@ -239,6 +243,8 @@ const ChatBotDemo = () => {
                                     <WorkflowMessageRenderer 
                                       content={content} 
                                       onResumeWorkflow={handleResumeWorkflow}
+                                      token={token}
+                                      router={router}
                                     />
                                   ) : (
                                     <div className="prose prose-sm max-w-none">

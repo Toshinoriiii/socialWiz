@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/Button';
 import { BrainIcon, SparklesIcon, ImageIcon, XIcon } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 
 interface WorkflowStepData {
   id: string;
@@ -20,13 +22,15 @@ interface WorkflowStepData {
 interface WorkflowMessageRendererProps {
   content: string;
   onResumeWorkflow?: (runId: string, stepId: string, resumeData: any) => Promise<void>; // 新增: workflow resume 回调
+  token?: string; // JWT token
+  router?: AppRouterInstance; // Next.js router
 }
 
 /**
  * 解析包含工作流步骤标记的消息内容
  * 格式: <!--STEP:stepId:START:status-->...<!--STEP:stepId:END:status-->
  */
-export function WorkflowMessageRenderer({ content, onResumeWorkflow }: WorkflowMessageRendererProps) {
+export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, router }: WorkflowMessageRendererProps) {
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmationHandled, setConfirmationHandled] = useState(false);
   
@@ -38,7 +42,16 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow }: WorkflowM
   const intentMatch = content.match(/<!--INTENT_RECOGNITION_START-->(.*?)<!--INTENT_RECOGNITION_END-->/s);
   const intentRecognition = intentMatch ? intentMatch[1].trim() : null;
   
+  // 从意图识别结果中提取 workflowType
+  const intentTypeMatch = content.match(/<!--INTENT_RECOGNITION_START-->.*?intent.*?`(.*?)`/s);
+  const intent = intentTypeMatch ? intentTypeMatch[1] : null;
+  
+  const workflowType = intent === 'article-creation-workflow' ? 'article' 
+    : intent === 'social-media-post' ? 'social-media' 
+    : null;
+  
   console.log('[WorkflowMessageRenderer] Intent recognition:', intentRecognition ? '找到' : '未找到');
+  console.log('[WorkflowMessageRenderer] Workflow type:', workflowType);
   
   // 处理内容:如果出现了INTENT_RECOGNITION_START,则移除INTENT_RECOGNIZING部分
   let processedContent = content;
@@ -205,6 +218,74 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow }: WorkflowM
   };
   
   
+  // 处理保存草稿
+  const handleSaveDraft = async (data: { title: string; content: string; images: string[]; coverImage?: string }) => {
+    console.log('[handleSaveDraft] 开始保存草稿');
+    console.log('[handleSaveDraft] Token exists:', !!token);
+    console.log('[handleSaveDraft] Token preview:', token ? token.substring(0, 20) + '...' : 'null');
+    
+    if (!token) {
+      console.error('[handleSaveDraft] Token 不存在');
+      toast.error('未登录，请先登录');
+      return;
+    }
+    
+    if (!router) {
+      console.error('[handleSaveDraft] Router 不可用');
+      toast.error('路由不可用');
+      return;
+    }
+    
+    try {
+      console.log('[handleSaveDraft] 发送请求到 /api/content/draft');
+      console.log('[handleSaveDraft] 数据:', { title: data.title.substring(0, 50), contentLength: data.content.length, imagesCount: data.images.length });
+      
+      const response = await fetch('/api/content/draft', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: data.title,
+          content: data.content,
+          images: data.images,
+          coverImage: data.coverImage,
+          aiGenerated: true
+        })
+      });
+      
+      console.log('[handleSaveDraft] 响应状态:', response.status);
+      
+      const result = await response.json();
+      console.log('[handleSaveDraft] 响应数据:', result);
+      
+      if (response.ok && result.draft?.id) {
+        toast.success('草稿已保存');
+        console.log('[handleSaveDraft] 跳转到编辑页, workflowType:', workflowType);
+        
+        // 根据类型跳转
+        if (workflowType === 'social-media') {
+          router.push(`/publish/create-image?id=${result.draft.id}`);
+        } else {
+          router.push(`/publish/create-article?id=${result.draft.id}`);
+        }
+      } else {
+        console.error('[handleSaveDraft] 保存失败:', result.error);
+        toast.error(result.error || '保存失败');
+        
+        // 如果是 token 错误，提示用户重新登录
+        if (response.status === 401) {
+          toast.error('登录已过期，请重新登录');
+        }
+      }
+    } catch (error) {
+      console.error('[handleSaveDraft] 请求错误:', error);
+      toast.error('网络错误，请重试');
+    }
+  };
+  
+  
   // 从剩余内容中移除最终结果标记
   if (finalResult) {
     remainingContent = remainingContent
@@ -352,6 +433,8 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow }: WorkflowM
         <FinalResultCard 
           content={finalResult} 
           wordCount={finalResult.length}
+          workflowType={workflowType}
+          onSaveDraft={token && router ? handleSaveDraft : undefined}
         />
       )}
 

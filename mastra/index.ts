@@ -9,7 +9,9 @@ import { imagePromptAgent } from './agents/image-prompt-agent';
 import { contentMixAgent } from './agents/content-mix-agent';
 import { socialMediaAgent } from './agents/social-media-agent';
 import { intentRouterAgent } from './agents/intent-router-agent';
-import { getMCPClient } from './mcp';
+import { imageGenerationAgent } from './agents/image-generation-agent';
+import { contentFormatterAgent } from './agents/content-formatter-agent';
+import { getMCPTools } from './mcp';
 
 // 创建 DeepSeek LLM 实例
 const deepseek = createOpenAI({
@@ -22,12 +24,11 @@ async function createMastraInstance() {
   let mcpTools = {};
   
   try {
-    // 尝试初始化 MCP 客户端
-    const mcpClient = getMCPClient();
-    mcpTools = await mcpClient.getTools();
-    console.log('MCP tools loaded successfully');
+    // 使用单例的 getMCPTools 加载工具（带缓存）
+    mcpTools = await getMCPTools();
+    console.log('[Mastra] MCP tools loaded successfully');
   } catch (error) {
-    console.warn('Failed to load MCP tools, continuing without them:', error);
+    console.warn('[Mastra] Failed to load MCP tools, continuing without them:', error);
   }
 
   return new Mastra({
@@ -38,6 +39,8 @@ async function createMastraInstance() {
       imagePromptAgent,
       contentMixAgent,
       socialMediaAgent,
+      imageGenerationAgent,
+      contentFormatterAgent,
     },
     tools: mcpTools,
     llms: {

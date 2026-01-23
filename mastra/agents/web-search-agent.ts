@@ -1,7 +1,7 @@
 // mastra/agents/web-search-agent.ts
 
 import { Agent } from '@mastra/core/agent'
-import { getMCPClient } from '@/mastra/mcp';
+import { getMCPTools } from '@/mastra/mcp';
 /**
  * Web 搜索 Agent
  * 负责根据用户输入的主题进行联网搜索
@@ -74,10 +74,9 @@ MCP 工具返回的是 JSON 字符串，包含以下结构:
 - 返回的搜索结果应该包含足够的信息用于后续的内容创作
 - 如果搜索结果为空或失败,明确告知并建议调整查询词`,
   model: 'deepseek/deepseek-chat',
-  // 只使用搜索工具
+  // 从单例 MCP 客户端获取工具（带缓存）
   tools: async () => {
-    const mcpClient = getMCPClient();
-    const allTools = await mcpClient.getTools();
+    const allTools = await getMCPTools();
     
     // 只返回搜索工具
     const searchTools: Record<string, any> = {};
@@ -90,6 +89,9 @@ MCP 工具返回的是 JSON 字符串，包含以下结构:
     
     if (Object.keys(searchTools).length === 0) {
       console.warn('[webSearchAgent] No search tools found!');
+      console.warn('[webSearchAgent] Available tools:', Object.keys(allTools));
+    } else {
+      console.log(`[webSearchAgent] Total ${Object.keys(searchTools).length} search tools loaded`);
     }
     
     return searchTools;

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { Save, Eye, FileText, Loader2 } from 'lucide-react'
+import { Save, Eye, FileText, Loader2, Image as ImageIcon, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useUserStore } from '@/store/user.store'
 import '@uiw/react-md-editor/markdown-editor.css'
@@ -26,6 +26,8 @@ export default function CreateArticlePage() {
   const { token } = useUserStore()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
+  const [coverImage, setCoverImage] = useState('')
+  const [coverImageUrl, setCoverImageUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
   const [previewMode, setPreviewMode] = useState<'edit' | 'live' | 'preview'>('edit')
@@ -55,6 +57,7 @@ export default function CreateArticlePage() {
         if (data.draft) {
           setTitle(data.draft.title || '')
           setContent(data.draft.content || '')
+          setCoverImage(data.draft.coverImage || '')
         }
       } else {
         const error = await response.json()
@@ -95,7 +98,8 @@ export default function CreateArticlePage() {
         body: JSON.stringify({
           id: draftId || undefined,
           title,
-          content
+          content,
+          coverImage: coverImage || undefined
         })
       })
 
@@ -123,6 +127,14 @@ export default function CreateArticlePage() {
       setPreviewMode('edit')
     } else {
       setPreviewMode('preview')
+    }
+  }
+
+  const handleSetCoverFromUrl = () => {
+    if (coverImageUrl.trim()) {
+      setCoverImage(coverImageUrl.trim())
+      setCoverImageUrl('')
+      toast.success('封面图已设置')
     }
   }
 
@@ -166,6 +178,48 @@ export default function CreateArticlePage() {
               className="bg-white border-gray-300 text-black"
               placeholder="请输入文章标题"
             />
+          </div>
+
+          <Separator className="bg-gray-300" />
+
+          {/* 封面图配置 */}
+          <div className="space-y-2">
+            <Label className="text-black">封面图 (可选)</Label>
+            {coverImage ? (
+              <div className="relative">
+                <img 
+                  src={coverImage} 
+                  alt="封面" 
+                  className="w-full h-48 object-cover rounded border border-gray-300" 
+                />
+                <Button
+                  onClick={() => setCoverImage('')}
+                  size="sm"
+                  variant="destructive"
+                  className="absolute top-2 right-2"
+                >
+                  <X className="size-4 mr-1" />
+                  移除
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Input 
+                  placeholder="输入图片 URL" 
+                  value={coverImageUrl}
+                  onChange={(e) => setCoverImageUrl(e.target.value)}
+                  className="bg-white border-gray-300 text-black"
+                />
+                <Button 
+                  onClick={handleSetCoverFromUrl}
+                  variant="outline"
+                  className="shrink-0 border-gray-300 text-black hover:bg-gray-100"
+                >
+                  <ImageIcon className="size-4 mr-1" />
+                  设置
+                </Button>
+              </div>
+            )}
           </div>
 
           <Separator className="bg-gray-300" />
