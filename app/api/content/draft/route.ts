@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { id, title, content, coverImage, images, aiGenerated } = body
+    const { id, title, content, coverImage, images, aiGenerated, contentType } = body
 
     // 验证输入
     if (!title || !title.trim()) {
@@ -62,6 +62,15 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      console.log('[POST /api/content/draft] 更新草稿:', {
+        id,
+        titleLength: title.trim().length,
+        contentLength: content.trim().length,
+        contentPreview: content.trim().substring(0, 500),
+        imagesCount: images?.length || 0,
+        images: images
+      });
+      
       draft = await prisma.content.update({
         where: { id },
         data: {
@@ -69,11 +78,20 @@ export async function POST(request: NextRequest) {
           content: content.trim(),
           coverImage: coverImage || null,
           images: images || [],
+          contentType: contentType || existingDraft.contentType,
           aiGenerated: aiGenerated !== undefined ? aiGenerated : existingDraft.aiGenerated,
           updatedAt: new Date()
         }
       })
     } else {
+      console.log('[POST /api/content/draft] 创建草稿:', {
+        titleLength: title.trim().length,
+        contentLength: content.trim().length,
+        contentPreview: content.trim().substring(0, 500),
+        imagesCount: images?.length || 0,
+        images: images
+      });
+      
       draft = await prisma.content.create({
         data: {
           userId: user.id,
@@ -81,6 +99,7 @@ export async function POST(request: NextRequest) {
           content: content.trim(),
           coverImage: coverImage || null,
           images: images || [],
+          contentType: contentType || null,
           aiGenerated: aiGenerated || false,
           status: 'DRAFT'
         }
@@ -95,6 +114,7 @@ export async function POST(request: NextRequest) {
         content: draft.content,
         coverImage: draft.coverImage,
         images: draft.images,
+        contentType: draft.contentType,
         aiGenerated: draft.aiGenerated,
         status: draft.status,
         createdAt: draft.createdAt,
@@ -144,6 +164,8 @@ export async function GET(request: NextRequest) {
         title: true,
         status: true,
         images: true,
+        coverImage: true,
+        contentType: true,
         createdAt: true,
         updatedAt: true
       },

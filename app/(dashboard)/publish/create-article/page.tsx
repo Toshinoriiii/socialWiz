@@ -34,12 +34,31 @@ export default function CreateArticlePage() {
   const loadedRef = useRef<string | null>(null)
 
   // 如果是编辑模式，加载草稿内容
+  // 或者从 AI 生成跳转过来，加载 sessionStorage 中的数据
   useEffect(() => {
-    if (draftId && token && loadedRef.current !== draftId) {
+    const fromAi = searchParams.get('from') === 'ai'
+    
+    if (fromAi) {
+      // 从 AI 生成跳转过来，加载 sessionStorage 中的数据
+      const aiContent = sessionStorage.getItem('ai-generated-content')
+      if (aiContent) {
+        try {
+          const data = JSON.parse(aiContent)
+          setTitle(data.title || '')
+          setContent(data.content || '')
+          setCoverImage(data.coverImage || '')
+          // 清除 sessionStorage，避免重复加载
+          sessionStorage.removeItem('ai-generated-content')
+        } catch (error) {
+          console.error('解析 AI 生成内容失败:', error)
+        }
+      }
+    } else if (draftId && token && loadedRef.current !== draftId) {
+      // 编辑已有草稿
       loadedRef.current = draftId
       loadDraft(draftId)
     }
-  }, [draftId, token])
+  }, [draftId, token, searchParams])
 
   const loadDraft = async (id: string) => {
     if (!token) return
@@ -89,6 +108,29 @@ export default function CreateArticlePage() {
 
     try {
       setSaving(true)
+
+      // 确定 contentType
+      const fromAi = searchParams.get('from') === 'ai'
+      let contentType = 'article' // 默认文章
+      
+      if (fromAi) {
+        // 从 AI 生成跳转过来的，contentType 已经在 sessionStorage 中
+        // 但此时 sessionStorage 可能已经被清除，所以使用默认值
+        // 实际上，contentType 应该在跳转时就已经确定了（文章编辑器就是 article）
+        contentType = 'article'
+      } else if (draftId) {
+        // 编辑已有草稿时，从草稿中获取 contentType
+        const response = await fetch(`/api/content/draft/${draftId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          contentType = data.draft?.contentType || 'article'
+        }
+      }
+
       const response = await fetch('/api/content/draft', {
         method: 'POST',
         headers: {
@@ -99,7 +141,9 @@ export default function CreateArticlePage() {
           id: draftId || undefined,
           title,
           content,
-          coverImage: coverImage || undefined
+          coverImage: coverImage || undefined,
+          contentType: contentType,
+          aiGenerated: fromAi // 如果是从 AI 生成跳转过来的，标记为 AI 生成
         })
       })
 
@@ -107,9 +151,12 @@ export default function CreateArticlePage() {
 
       if (response.ok) {
         toast.success(draftId ? '草稿已更新' : '草稿已保存')
-        // 如果是新创建的草稿，更新URL以支持继续编辑
+        // 如果是新创建的草稿，更新URL以支持继续编辑，并移除 from=ai 参数
         if (!draftId && data.draft?.id) {
           router.replace(`/publish/create-article?id=${data.draft.id}`)
+        } else if (fromAi) {
+          // 如果是从 AI 生成跳转过来的，保存后移除 from=ai 参数
+          router.replace(`/publish/create-article?id=${draftId || data.draft?.id}`)
         }
       } else {
         toast.error(data.error || '保存失败')
@@ -262,7 +309,7 @@ export default function CreateArticlePage() {
               ) : (
                 <>
                   <Save className="size-4 mr-2" />
-                  {draftId ? '更新草稿' : '保存草稿'}
+                  {draftId && searchParams.get('from') !== 'ai' ? '更新草稿' : '保存草稿'}
                 </>
               )}
             </Button>

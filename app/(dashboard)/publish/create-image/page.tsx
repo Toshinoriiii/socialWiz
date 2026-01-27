@@ -33,12 +33,31 @@ export default function CreateImagePage() {
   const loadedRef = useRef<string | null>(null)
 
   // 如果是编辑模式，加载草稿内容
+  // 或者从 AI 生成跳转过来，加载 sessionStorage 中的数据
   useEffect(() => {
-    if (draftId && token && loadedRef.current !== draftId) {
+    const fromAi = searchParams.get('from') === 'ai'
+    
+    if (fromAi) {
+      // 从 AI 生成跳转过来，加载 sessionStorage 中的数据
+      const aiContent = sessionStorage.getItem('ai-generated-content')
+      if (aiContent) {
+        try {
+          const data = JSON.parse(aiContent)
+          setTitle(data.title || '')
+          setDescription(data.content || '')
+          setImages(data.images || [])
+          // 清除 sessionStorage，避免重复加载
+          sessionStorage.removeItem('ai-generated-content')
+        } catch (error) {
+          console.error('解析 AI 生成内容失败:', error)
+        }
+      }
+    } else if (draftId && token && loadedRef.current !== draftId) {
+      // 编辑已有草稿
       loadedRef.current = draftId
       loadDraft(draftId)
     }
-  }, [draftId, token])
+  }, [draftId, token, searchParams])
 
   const loadDraft = async (id: string) => {
     if (!token) return
@@ -54,6 +73,13 @@ export default function CreateImagePage() {
       if (response.ok) {
         const data = await response.json()
         if (data.draft) {
+          console.log('[loadDraft] 加载的草稿数据:', {
+            title: data.draft.title,
+            contentLength: data.draft.content?.length,
+            contentPreview: data.draft.content?.substring(0, 500),
+            imagesCount: data.draft.images?.length,
+            images: data.draft.images
+          })
           setTitle(data.draft.title || '')
           setDescription(data.draft.content || '') // content 映射到 description
           setImages(data.draft.images || [])
@@ -165,7 +191,10 @@ export default function CreateImagePage() {
       toast.error('请输入图文标题')
       return
     }
-    if (images.length === 0) {
+    // 允许无图片的情况（从AI生成跳转过来的无配图工作流）
+    // 但如果是手动创建的，建议至少有一张图片
+    const fromAi = searchParams.get('from') === 'ai'
+    if (!fromAi && images.length === 0) {
       toast.error('至少需要上传一张图片')
       return
     }
@@ -178,6 +207,28 @@ export default function CreateImagePage() {
     try {
       setSaving(true)
 
+      // 确定 contentType
+      const fromAi = searchParams.get('from') === 'ai'
+      let contentType = 'image-text' // 默认图文
+      
+      if (fromAi) {
+        // 从 AI 生成跳转过来的，contentType 已经在 sessionStorage 中
+        // 但此时 sessionStorage 可能已经被清除，所以使用默认值
+        // 实际上，contentType 应该在跳转时就已经确定了（图文编辑器就是 image-text）
+        contentType = 'image-text'
+      } else if (draftId) {
+        // 编辑已有草稿时，从草稿中获取 contentType
+        const response = await fetch(`/api/content/draft/${draftId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          contentType = data.draft?.contentType || 'image-text'
+        }
+      }
+
       const response = await fetch('/api/content/draft', {
         method: 'POST',
         headers: {
@@ -188,7 +239,9 @@ export default function CreateImagePage() {
           id: draftId || undefined,
           title: title.trim(),
           content: description.trim(), // description 映射到 content
-          images: images
+          images: images,
+          contentType: contentType,
+          aiGenerated: fromAi // 如果是从 AI 生成跳转过来的，标记为 AI 生成
         })
       })
 
@@ -196,9 +249,12 @@ export default function CreateImagePage() {
 
       if (response.ok) {
         toast.success(draftId ? '草稿已更新' : '草稿已保存')
-        // 如果是新创建的草稿，更新URL以包含id
+        // 如果是新创建的草稿，更新URL以包含id，并移除 from=ai 参数
         if (!draftId && data.draft?.id) {
           router.replace(`/publish/create-image?id=${data.draft.id}`)
+        } else if (fromAi) {
+          // 如果是从 AI 生成跳转过来的，保存后移除 from=ai 参数
+          router.replace(`/publish/create-image?id=${draftId || data.draft?.id}`)
         }
       } else {
         toast.error(data.error || '保存失败')
@@ -392,7 +448,7 @@ export default function CreateImagePage() {
             </Button>
             <Button
               onClick={handleSaveDraft}
-              disabled={!title.trim() || images.length === 0 || saving}
+              disabled={!title.trim() || saving}
               className="bg-black text-white hover:bg-gray-800 transition-all duration-150"
             >
               {saving ? (
@@ -403,7 +459,7 @@ export default function CreateImagePage() {
               ) : (
                 <>
                   <Save className="size-4 mr-2" />
-                  {draftId ? '更新草稿' : '保存草稿'}
+                  {draftId && searchParams.get('from') !== 'ai' ? '更新草稿' : '保存草稿'}
                 </>
               )}
             </Button>

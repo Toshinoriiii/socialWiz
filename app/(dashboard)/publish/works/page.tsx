@@ -15,6 +15,8 @@ interface Draft {
   title: string
   status: string
   images?: string[]
+  coverImage?: string | null
+  contentType?: string | null // 'image-text' | 'article'
   createdAt: string
   updatedAt: string
 }
@@ -56,12 +58,24 @@ export default function WorksManagementPage() {
   }
 
   const handleEdit = (draft: Draft) => {
-    // 根据是否有图片判断是图文还是文章
-    const isImageText = draft.images && draft.images.length > 0
-    if (isImageText) {
+    // 根据保存的 contentType 判断编辑器类型（根据原始 workflow 类型）
+    // 如果 contentType 是 'image-text'，使用图文编辑器
+    // 如果 contentType 是 'article'，使用文章编辑器
+    // 如果没有 contentType，根据数据推断（向后兼容）
+    if (draft.contentType === 'image-text') {
       router.push(`/publish/create-image?id=${draft.id}`)
-    } else {
+    } else if (draft.contentType === 'article') {
       router.push(`/publish/create-article?id=${draft.id}`)
+    } else {
+      // 向后兼容：如果没有 contentType，根据数据推断
+      const hasImages = draft.images && draft.images.length > 0
+      const hasCoverImage = draft.coverImage && draft.coverImage.trim().length > 0
+      
+      if (hasImages && !hasCoverImage) {
+        router.push(`/publish/create-image?id=${draft.id}`)
+      } else {
+        router.push(`/publish/create-article?id=${draft.id}`)
+      }
     }
   }
 

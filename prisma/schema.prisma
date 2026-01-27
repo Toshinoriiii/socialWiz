@@ -52,6 +52,7 @@ model Content {
   content          String
   coverImage       String?
   images           String[]
+  contentType      String?           // 'image-text' | 'article' - 用于判断编辑器类型
   status           ContentStatus     @default(DRAFT)
   aiGenerated      Boolean           @default(false)
   aiModel          String?

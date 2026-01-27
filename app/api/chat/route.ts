@@ -375,7 +375,16 @@ ${JSON.stringify({
     }
     
     // 构造格式化 Agent 的输入
-    const formatterInput = `请格式化以下社交媒体文案，去除所有格式标签，直接输出干净的内容。\n\n文案内容：\n${fullContent}`;
+    const formatterInput = `请格式化以下社交媒体文案，去除所有格式标签和Markdown语法，直接输出纯文本内容（不包含#、**、-、![]()等任何Markdown标记，但保留行尾或单独一行的#标签）。
+
+**重要要求**：
+1. 第一行必须是标题（提取原文标题或第一段的前30-50字作为标题）
+2. 标题后必须有一个空行
+3. 然后输出正文内容
+4. **必须删除"配图建议"部分**：如果原文案中包含"配图建议"或"**配图建议**"这个部分，必须完全删除，包括该部分的所有内容
+5. **保留#标签**：行尾或单独一行的#标签（如 #打工人必备）必须保留
+
+文案内容：\n${fullContent}`;
     
     // 调用格式化 Agent（流式输出）
     writer.write({ type: 'text-delta', id: textId, delta: `<!--STEP:${step3Id}:OUTPUT:STREAMING-->` });
@@ -575,13 +584,14 @@ ${JSON.stringify({
     }
     
     // 构造格式化 Agent 的输入
-    let formatterInput = `请格式化以下社交媒体文案，去除所有格式标签，直接输出干净的内容。\n\n文案内容：\n${fullContent}`;
+    let formatterInput = `请格式化以下社交媒体文案，去除所有格式标签和Markdown语法，直接输出纯文本内容（不包含#、**、-、![]()等任何Markdown标记）。\n\n文案内容：\n${fullContent}`;
     
     if (generatedImages.length > 0) {
       formatterInput += `\n\n配图列表：\n`;
       generatedImages.forEach(img => {
-        formatterInput += `- 图片${img.order}: ${img.description}\n  URL: ${img.proxyUrl}\n`;
+        formatterInput += `- 图片${img.order}: ${img.description}\n  原始URL: ${img.url}\n  代理URL: ${img.proxyUrl}\n`;
       });
+      formatterInput += `\n\n注意：配图信息只需要在文末以纯文本形式列出图片描述和原始URL，不要使用Markdown图片语法。保存草稿时会使用原始URL下载图片。`;
     }
     
     // 调用格式化 Agent（流式输出）
@@ -923,10 +933,10 @@ ${JSON.stringify({
       throw new Error('contentMixAgent 未找到');
     }
 
-    // 准备图片信息
+    // 准备图片信息（同时提供原始URL和代理URL）
     const imageDescriptions = generatedImages.map(img => 
-      `图片${img.order}: ${img.description} (URL: ${img.proxyUrl})`
-    ).join('\n');
+      `图片${img.order}: ${img.description}\n  原始URL: ${img.url}\n  代理URL: ${img.proxyUrl}`
+    ).join('\n\n');
 
     // 调用图文混合 agent
     const mixPrompt = generatedImages.length > 0

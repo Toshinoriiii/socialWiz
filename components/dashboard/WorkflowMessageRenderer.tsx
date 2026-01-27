@@ -46,11 +46,16 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   const intentTypeMatch = content.match(/<!--INTENT_RECOGNITION_START-->.*?intent.*?`(.*?)`/s);
   const intent = intentTypeMatch ? intentTypeMatch[1] : null;
   
-  const workflowType = intent === 'article-creation-workflow' ? 'article' 
-    : intent === 'social-media-post' ? 'social-media' 
-    : null;
+  // 提取 workflowType，支持多种格式
+  let workflowType: 'social-media' | 'article' | null = null;
+  if (intent === 'article-creation-workflow' || intent === 'article') {
+    workflowType = 'article';
+  } else if (intent === 'social-media-post' || intent === 'social-media') {
+    workflowType = 'social-media';
+  }
   
   console.log('[WorkflowMessageRenderer] Intent recognition:', intentRecognition ? '找到' : '未找到');
+  console.log('[WorkflowMessageRenderer] Intent:', intent);
   console.log('[WorkflowMessageRenderer] Workflow type:', workflowType);
   
   // 处理内容:如果出现了INTENT_RECOGNITION_START,则移除INTENT_RECOGNIZING部分
@@ -218,11 +223,96 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   };
   
   
-  // 处理保存草稿
+  // 下载图片并转换为 File 对象
+  const downloadImageAsFile = async (imageUrl: string, index: number): Promise<File | null> => {
+    try {
+      // 处理图片URL：如果是代理URL，提取原始URL；否则直接使用
+      let url = imageUrl;
+      if (imageUrl.startsWith('/api/image-proxy')) {
+        // 从代理URL中提取原始URL
+        try {
+          const urlObj = new URL(imageUrl, 'http://dummy');
+          const originalUrl = urlObj.searchParams.get('url');
+          if (originalUrl) {
+            url = decodeURIComponent(originalUrl);
+            console.log(`[downloadImageAsFile] 从代理URL提取原始URL: ${url}`);
+          } else {
+            // 如果无法提取，使用代理URL
+            url = `${window.location.origin}${imageUrl}`;
+          }
+        } catch (e) {
+          // 如果解析失败，使用代理URL
+          url = `${window.location.origin}${imageUrl}`;
+        }
+      } else if (!imageUrl.startsWith('http')) {
+        // 如果是相对路径，转换为完整URL
+        url = imageUrl.startsWith('/') ? `${window.location.origin}${imageUrl}` : `${window.location.origin}/${imageUrl}`;
+      }
+
+      console.log(`[downloadImageAsFile] 开始下载图片 ${index + 1}: ${url} (原始输入: ${imageUrl})`);
+
+      // 获取图片（添加错误处理和超时）
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超时
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        mode: 'cors', // 允许跨域
+        credentials: 'omit', // 不发送cookie
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error(`[downloadImageAsFile] 下载图片失败: ${imageUrl}`, response.status, response.statusText);
+        return null;
+      }
+
+      const blob = await response.blob();
+      
+      // 验证是否为图片
+      if (!blob.type.startsWith('image/')) {
+        console.error(`[downloadImageAsFile] 不是有效的图片类型: ${blob.type}`);
+        return null;
+      }
+      
+      // 从URL或Content-Type推断文件扩展名
+      let extension = 'jpg';
+      const contentType = blob.type;
+      if (contentType.includes('png')) {
+        extension = 'png';
+      } else if (contentType.includes('gif')) {
+        extension = 'gif';
+      } else if (contentType.includes('webp')) {
+        extension = 'webp';
+      } else {
+        // 尝试从URL提取扩展名
+        const urlMatch = imageUrl.match(/\.(jpg|jpeg|png|gif|webp)/i);
+        if (urlMatch) {
+          extension = urlMatch[1].toLowerCase();
+        }
+      }
+
+      // 创建 File 对象
+      const fileName = `image-${index + 1}.${extension}`;
+      const file = new File([blob], fileName, { type: blob.type });
+      
+      console.log(`[downloadImageAsFile] 成功下载图片 ${index + 1}: ${fileName}, 大小: ${file.size} bytes`);
+      return file;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.error(`[downloadImageAsFile] 下载图片超时: ${imageUrl}`);
+      } else {
+        console.error(`[downloadImageAsFile] 下载图片错误: ${imageUrl}`, error);
+      }
+      return null;
+    }
+  };
+
+  // 处理跳转到编辑器（不创建草稿，只是跳转）
   const handleSaveDraft = async (data: { title: string; content: string; images: string[]; coverImage?: string }) => {
-    console.log('[handleSaveDraft] 开始保存草稿');
+    console.log('[handleSaveDraft] 开始跳转到编辑器');
     console.log('[handleSaveDraft] Token exists:', !!token);
-    console.log('[handleSaveDraft] Token preview:', token ? token.substring(0, 20) + '...' : 'null');
     
     if (!token) {
       console.error('[handleSaveDraft] Token 不存在');
@@ -237,46 +327,132 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
     }
     
     try {
-      console.log('[handleSaveDraft] 发送请求到 /api/content/draft');
-      console.log('[handleSaveDraft] 数据:', { title: data.title.substring(0, 50), contentLength: data.content.length, imagesCount: data.images.length });
+      // 下载并上传图片（图片需要先上传到服务器，因为编辑器需要访问）
+      let uploadedImageUrls: string[] = [];
       
-      const response = await fetch('/api/content/draft', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          title: data.title,
-          content: data.content,
-          images: data.images,
-          coverImage: data.coverImage,
-          aiGenerated: true
-        })
-      });
-      
-      console.log('[handleSaveDraft] 响应状态:', response.status);
-      
-      const result = await response.json();
-      console.log('[handleSaveDraft] 响应数据:', result);
-      
-      if (response.ok && result.draft?.id) {
-        toast.success('草稿已保存');
-        console.log('[handleSaveDraft] 跳转到编辑页, workflowType:', workflowType);
+      if (data.images && data.images.length > 0) {
+        toast.loading('正在下载图片...', { id: 'download-images' });
         
-        // 根据类型跳转
-        if (workflowType === 'social-media') {
-          router.push(`/publish/create-image?id=${result.draft.id}`);
-        } else {
-          router.push(`/publish/create-article?id=${result.draft.id}`);
+        // 下载所有图片
+        const imageFiles: File[] = [];
+        const failedUrls: string[] = [];
+        
+        for (let i = 0; i < data.images.length; i++) {
+          const imageUrl = data.images[i];
+          const file = await downloadImageAsFile(imageUrl, i);
+          if (file) {
+            imageFiles.push(file);
+          } else {
+            failedUrls.push(imageUrl);
+            console.warn(`[handleSaveDraft] 图片 ${i + 1} 下载失败: ${imageUrl}`);
+          }
         }
-      } else {
-        console.error('[handleSaveDraft] 保存失败:', result.error);
-        toast.error(result.error || '保存失败');
         
-        // 如果是 token 错误，提示用户重新登录
-        if (response.status === 401) {
-          toast.error('登录已过期，请重新登录');
+        // 如果部分图片下载成功，继续上传成功的图片
+        if (imageFiles.length > 0) {
+          toast.loading(`正在上传图片... (${imageFiles.length}/${data.images.length})`, { id: 'download-images' });
+          
+          // 上传图片到服务器
+          const formData = new FormData();
+          imageFiles.forEach((file) => {
+            formData.append('images', file);
+          });
+          
+          const uploadResponse = await fetch('/api/content/images/upload', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            body: formData
+          });
+          
+          const uploadResult = await uploadResponse.json();
+          
+          if (uploadResponse.ok && uploadResult.imageUrls) {
+            uploadedImageUrls = uploadResult.imageUrls;
+            
+            // 如果有失败的图片，添加原始URL作为后备
+            if (failedUrls.length > 0) {
+              uploadedImageUrls = [...uploadedImageUrls, ...failedUrls];
+              toast.success(`成功上传 ${uploadResult.imageUrls.length} 张图片，${failedUrls.length} 张使用原始URL`, { id: 'download-images' });
+            } else {
+              toast.success(`成功上传 ${uploadedImageUrls.length} 张图片`, { id: 'download-images' });
+            }
+          } else {
+            console.error('[handleSaveDraft] 图片上传失败:', uploadResult.error);
+            toast.error(uploadResult.error || '图片上传失败', { id: 'download-images' });
+            // 如果上传失败，使用原始URL
+            uploadedImageUrls = data.images;
+          }
+        } else {
+          // 所有图片都下载失败，使用原始URL
+          console.warn('[handleSaveDraft] 所有图片下载失败，使用原始URL');
+          uploadedImageUrls = data.images;
+          toast.warning('图片下载失败，将使用原始URL', { id: 'download-images' });
+        }
+      }
+      
+      // 处理封面图
+      let coverImageUrl = data.coverImage;
+      if (coverImageUrl && uploadedImageUrls.length > 0) {
+        // 如果封面图在图片列表中，使用对应的上传后的URL
+        const coverIndex = data.images.indexOf(coverImageUrl);
+        if (coverIndex >= 0 && coverIndex < uploadedImageUrls.length) {
+          coverImageUrl = uploadedImageUrls[coverIndex];
+        } else {
+          // 如果封面图不在列表中，单独下载上传
+          const coverFile = await downloadImageAsFile(coverImageUrl, 0);
+          if (coverFile) {
+            const coverFormData = new FormData();
+            coverFormData.append('images', coverFile);
+            const coverUploadResponse = await fetch('/api/content/images/upload', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`
+              },
+              body: coverFormData
+            });
+            const coverUploadResult = await coverUploadResponse.json();
+            if (coverUploadResponse.ok && coverUploadResult.imageUrls && coverUploadResult.imageUrls.length > 0) {
+              coverImageUrl = coverUploadResult.imageUrls[0];
+            }
+          }
+        }
+      }
+      
+      // 确定 contentType
+      const contentType = workflowType === 'social-media' ? 'image-text' : 'article';
+      
+      // 将数据保存到 sessionStorage，供编辑器使用
+      const editorData = {
+        title: data.title,
+        content: data.content,
+        images: uploadedImageUrls,
+        coverImage: coverImageUrl,
+        contentType: contentType,
+        aiGenerated: true
+      };
+      
+      sessionStorage.setItem('ai-generated-content', JSON.stringify(editorData));
+      
+      console.log('[handleSaveDraft] 跳转到编辑页, workflowType:', workflowType);
+      console.log('[handleSaveDraft] ContentType:', contentType);
+      
+      // 根据工作流类型跳转（不因是否选择配图而改变）
+      // social-media 工作流 → 图文编辑器（支持多张图片）
+      // article 工作流 → 文章编辑器（支持封面图）
+      if (workflowType === 'social-media') {
+        router.push('/publish/create-image?from=ai');
+      } else if (workflowType === 'article') {
+        router.push('/publish/create-article?from=ai');
+      } else {
+        // workflowType 无法确定时，根据 contentType 判断
+        if (contentType === 'image-text') {
+          console.log('[handleSaveDraft] 根据 contentType 判断：使用图文编辑器');
+          router.push('/publish/create-image?from=ai');
+        } else {
+          console.log('[handleSaveDraft] 根据 contentType 判断：使用文章编辑器');
+          router.push('/publish/create-article?from=ai');
         }
       }
     } catch (error) {

@@ -5,7 +5,7 @@ import { prisma } from '@/lib/db/prisma'
 // GET - 获取单个草稿详情
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const token = request.headers.get('authorization')?.replace('Bearer ', '') ||
@@ -28,7 +28,7 @@ export async function GET(
       )
     }
 
-    const { id } = params
+    const { id } = await params
 
     // 获取草稿详情
     const draft = await prisma.content.findFirst({
@@ -41,6 +41,9 @@ export async function GET(
         id: true,
         title: true,
         content: true,
+        images: true,
+        coverImage: true,
+        contentType: true,
         status: true,
         createdAt: true,
         updatedAt: true
