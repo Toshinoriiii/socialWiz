@@ -69,3 +69,45 @@ export async function GET(
     )
   }
 }
+
+// DELETE - 删除草稿/作品（仅删除本应用内的记录，不删除远程平台的文章）
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const token = request.headers.get('authorization')?.replace('Bearer ', '') ||
+                  request.cookies.get('token')?.value
+
+    if (!token) {
+      return NextResponse.json({ error: '未授权' }, { status: 401 })
+    }
+
+    const user = await AuthService.verifyToken(token).catch(() => null)
+    if (!user) {
+      return NextResponse.json({ error: '无效的 token' }, { status: 401 })
+    }
+
+    const { id } = await params
+
+    const content = await prisma.content.findFirst({
+      where: { id, userId: user.id },
+    })
+
+    if (!content) {
+      return NextResponse.json({ error: '作品不存在或无权限' }, { status: 404 })
+    }
+
+    await prisma.content.delete({
+      where: { id },
+    })
+
+    return NextResponse.json({ success: true, message: '已删除' })
+  } catch (error) {
+    console.error('删除作品失败:', error)
+    return NextResponse.json(
+      { error: '服务器错误' },
+      { status: 500 }
+    )
+  }
+}

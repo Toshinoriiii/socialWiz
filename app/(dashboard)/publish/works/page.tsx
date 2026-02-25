@@ -9,7 +9,13 @@ import { Separator } from '@/components/ui/separator'
 import { useUserStore } from '@/store/user.store'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import { FileText, Edit, Send, Calendar, Loader2, Image as ImageIcon, History } from 'lucide-react'
+import { FileText, Edit, Send, Calendar, Loader2, Image as ImageIcon, History, Trash2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface Draft {
   id: string
@@ -28,6 +34,8 @@ export default function WorksManagementPage() {
   const { token } = useUserStore()
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [loading, setLoading] = useState(true)
+  const [deleteDraft, setDeleteDraft] = useState<Draft | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     loadDrafts()
@@ -117,6 +125,29 @@ export default function WorksManagementPage() {
             {status}
           </Badge>
         )
+    }
+  }
+
+  const handleDeleteDraft = async () => {
+    if (!deleteDraft || !token) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/content/draft/${deleteDraft.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.success) {
+        toast.success('已删除')
+        setDeleteDraft(null)
+        loadDrafts()
+      } else {
+        toast.error(data.error || '删除失败')
+      }
+    } catch {
+      toast.error('网络错误')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -225,6 +256,17 @@ export default function WorksManagementPage() {
                             <History className="size-4 mr-2" />
                             查看发布记录
                           </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-gray-300 text-gray-500 hover:text-red-600 hover:border-red-300"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDeleteDraft(draft)
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
                         </>
                       ) : (
                         <>
@@ -252,6 +294,17 @@ export default function WorksManagementPage() {
                             <Send className="size-4 mr-2" />
                             发布
                           </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-gray-300 text-gray-500 hover:text-red-600 hover:border-red-300"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setDeleteDraft(draft)
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
                         </>
                       )}
                     </div>
@@ -265,6 +318,34 @@ export default function WorksManagementPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!deleteDraft} onOpenChange={(open) => !open && setDeleteDraft(null)}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">
+              {deleteDraft?.status === 'PUBLISHED' ? '删除作品' : '删除草稿'}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            {deleteDraft?.status === 'PUBLISHED'
+              ? '确定要删除此作品吗？仅删除本应用内的记录，不会删除远程平台（如微信公众号）上的文章。'
+              : '确定要删除此草稿吗？'}
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setDeleteDraft(null)} disabled={deleting}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteDraft}
+              disabled={deleting}
+            >
+              {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4 mr-1" />}
+              {deleting ? '删除中...' : '删除'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -11,7 +11,7 @@
  * - publishConfigId?: string (PlatformPublishConfig id，提供作者、原文链接等)
  * - title: string (标题)
  * - content: string (内容)
- * - coverImage?: File (封面图片，WECHAT 必填)
+ * - coverImage?: File (封面图片，WECHAT 可选，无封面时使用默认图)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -19,6 +19,7 @@ import { verify } from 'jsonwebtoken'
 import { Platform } from '@/types/platform.types'
 import { prisma } from '@/lib/db/prisma'
 import { PublishService } from '@/lib/services/publish.service'
+import { convertToJpegForWechat, createDefaultWechatCover } from '@/lib/utils/image-convert'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
 
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 微信公众号需要标题和封面图
+    // 微信公众号需要标题，封面图可选（无封面时使用默认图）
     if (platform === Platform.WECHAT) {
       if (!title?.trim()) {
         return NextResponse.json(
@@ -89,39 +90,43 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
-      if (!imageFile) {
-        return NextResponse.json(
-          { error: 'Missing image', details: '封面图片不能为空' },
-          { status: 400 }
-        )
-      }
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png']
-      if (!allowedTypes.includes(imageFile.type)) {
-        return NextResponse.json(
-          { error: 'Invalid file type', details: '只支持 JPG/PNG 格式的图片' },
-          { status: 400 }
-        )
-      }
-      const maxSize = 2 * 1024 * 1024
-      if (imageFile.size > maxSize) {
-        return NextResponse.json(
-          {
-            error: 'File too large',
-            details: `图片大小不能超过 2MB，当前 ${(imageFile.size / 1024 / 1024).toFixed(2)}MB`,
-          },
-          { status: 400 }
-        )
+      if (imageFile) {
+        const mime = (imageFile.type || '').toLowerCase()
+        if (mime && !['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'].includes(mime)) {
+          return NextResponse.json(
+            { error: 'Invalid file type', details: '仅支持 JPG/PNG/WebP/GIF 图片' },
+            { status: 400 }
+          )
+        }
+        const maxSize = 2 * 1024 * 1024
+        if (imageFile.size > maxSize) {
+          return NextResponse.json(
+            {
+              error: 'File too large',
+              details: `图片大小不能超过 2MB，当前 ${(imageFile.size / 1024 / 1024).toFixed(2)}MB`,
+            },
+            { status: 400 }
+          )
+        }
       }
     }
 
     let coverImage: { buffer: Buffer; filename: string; contentType: string } | undefined
     if (imageFile) {
       const arrayBuffer = await imageFile.arrayBuffer()
-      coverImage = {
-        buffer: Buffer.from(arrayBuffer),
-        filename: imageFile.name || 'cover.jpg',
-        contentType: imageFile.type || 'image/jpeg',
+      const rawBuffer = Buffer.from(arrayBuffer)
+      if (platform === Platform.WECHAT) {
+        coverImage = await convertToJpegForWechat(rawBuffer)
+      } else {
+        coverImage = {
+          buffer: rawBuffer,
+          filename: imageFile.name || 'cover.jpg',
+          contentType: imageFile.type || 'image/jpeg',
+        }
       }
+    } else if (platform === Platform.WECHAT) {
+      // 微信发布不强制需要封面，无封面时使用默认图
+      coverImage = await createDefaultWechatCover()
     }
 
     const result = await PublishService.publish({
@@ -148,6 +153,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 发布成功：更新作品状态为已发布，创建发布记录
+    const platformContentIdStr =
+      result.platformPostId != null ? String(result.platformPostId) : undefined
     try {
       const contentRecord = await prisma.content.findFirst({
         where: { id: contentId, userId },
@@ -169,7 +176,7 @@ export async function POST(request: NextRequest) {
             await prisma.contentPlatform.update({
               where: { id: existing.id },
               data: {
-                platformContentId: result.platformPostId ?? undefined,
+                platformContentId: platformContentIdStr,
                 publishedUrl: result.publishedUrl ?? undefined,
                 publishStatus: 'SUCCESS',
               },
@@ -179,7 +186,7 @@ export async function POST(request: NextRequest) {
               data: {
                 contentId,
                 wechatConfigId: accountId,
-                platformContentId: result.platformPostId ?? undefined,
+                platformContentId: platformContentIdStr,
                 publishedUrl: result.publishedUrl ?? undefined,
                 publishStatus: 'SUCCESS',
               },
@@ -193,7 +200,7 @@ export async function POST(request: NextRequest) {
             await prisma.contentPlatform.update({
               where: { id: existing.id },
               data: {
-                platformContentId: result.platformPostId ?? undefined,
+                platformContentId: platformContentIdStr,
                 publishedUrl: result.publishedUrl ?? undefined,
                 publishStatus: 'SUCCESS',
               },
@@ -203,7 +210,7 @@ export async function POST(request: NextRequest) {
               data: {
                 contentId,
                 platformAccountId: accountId,
-                platformContentId: result.platformPostId ?? undefined,
+                platformContentId: platformContentIdStr,
                 publishedUrl: result.publishedUrl ?? undefined,
                 publishStatus: 'SUCCESS',
               },

@@ -277,19 +277,19 @@ export default function PublishFlowPage() {
           continue
         }
         const coverUrl = draft.coverImage || (draft.images?.[0])
-        if (!coverUrl) {
-          results.push({ accountId: acc.id, success: false, message: '需要封面图' })
-          continue
+        let imageFile: File | null = null
+        if (coverUrl) {
+          try {
+            const imgRes = await fetch(coverUrl)
+            const blob = await imgRes.blob()
+            const mime = blob.type || 'image/jpeg'
+            imageFile = new File([blob], 'cover.jpg', { type: mime })
+          } catch {
+            results.push({ accountId: acc.id, success: false, message: '封面图获取失败' })
+            continue
+          }
         }
-        let imageFile: File
-        try {
-          const imgRes = await fetch(coverUrl)
-          const blob = await imgRes.blob()
-          imageFile = new File([blob], 'cover.jpg', { type: blob.type || 'image/jpeg' })
-        } catch {
-          results.push({ accountId: acc.id, success: false, message: '封面图获取失败' })
-          continue
-        }
+        // 微信发布不强制需要封面，无封面时服务端使用默认图
 
         const formData = new FormData()
         formData.append('contentId', draft.id)
@@ -298,7 +298,7 @@ export default function PublishFlowPage() {
         formData.append('publishConfigId', publishConfigId)
         formData.append('title', draft.title)
         formData.append('content', draft.content)
-        formData.append('image', imageFile)
+        if (imageFile) formData.append('image', imageFile)
 
         const res = await fetch('/api/platforms/publish', {
           method: 'POST',

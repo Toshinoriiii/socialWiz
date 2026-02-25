@@ -385,12 +385,14 @@ export class WechatAdapter implements PlatformAdapter {
             }
           }
 
-          // 发布成功
-          console.log('[WechatAdapter] Published successfully, publish_id:', publishData.publish_id)
+          // 任务提交成功，轮询发布状态以获取文章链接（微信发布为异步）
+          const publishId = publishData.publish_id
+          console.log('[WechatAdapter] Publish task submitted, publish_id:', publishId)
+          const articleUrl = await this.pollPublishStatus(accessToken, publishId)
           return {
             success: true,
-            platformPostId: draftMediaId,
-            publishedUrl: publishData.article_url || undefined
+            platformPostId: publishId,
+            publishedUrl: articleUrl
           }
         }
       } catch (error) {
@@ -410,6 +412,53 @@ export class WechatAdapter implements PlatformAdapter {
       error: `发布失败（已重试${maxRetries}次）: ${lastError}`,
       errorCode: 'PUBLISH_FAILED'
     }
+  }
+
+  /**
+   * 轮询发布状态，获取文章永久链接
+   * 微信 freepublish/submit 为异步，需通过 freepublish/get 查询最终结果
+   */
+  private async pollPublishStatus(
+    accessToken: string,
+    publishId: string,
+    maxAttempts = 10,
+    intervalMs = 2000
+  ): Promise<string | undefined> {
+    const getUrl = `https://api.weixin.qq.com/cgi-bin/freepublish/get?access_token=${accessToken}`
+    for (let i = 0; i < maxAttempts; i++) {
+      await this.sleep(intervalMs)
+      try {
+        const res = await fetch(getUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publish_id: publishId }),
+          signal: AbortSignal.timeout(5000),
+        })
+        const data = (await res.json()) as {
+          publish_status?: number
+          article_detail?: { item?: Array<{ article_url?: string }> }
+          errcode?: number
+        }
+        if (data.errcode && data.errcode !== 0) {
+          console.warn('[WechatAdapter] Poll status error:', data)
+          continue
+        }
+        const status = data.publish_status ?? -1
+        if (status === 0) {
+          const url = data.article_detail?.item?.[0]?.article_url
+          if (url) console.log('[WechatAdapter] Article URL:', url)
+          return url
+        }
+        if (status >= 2 && status <= 6) {
+          console.warn('[WechatAdapter] Publish failed, status:', status)
+          return undefined
+        }
+        console.log(`[WechatAdapter] Publish status: ${status} (1=发布中), retry ${i + 1}/${maxAttempts}`)
+      } catch (e) {
+        console.warn('[WechatAdapter] Poll exception:', e)
+      }
+    }
+    return undefined
   }
 
   /**

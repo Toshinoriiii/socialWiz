@@ -5,9 +5,15 @@ import { useRouter } from 'next/navigation'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useUserStore } from '@/store/user.store'
 import { toast } from 'sonner'
-import { History, ArrowLeft, ExternalLink, MessageCircle, Calendar, FileText, Loader2 } from 'lucide-react'
+import { History, ArrowLeft, ExternalLink, MessageCircle, Calendar, FileText, Loader2, Info, Trash2, CheckCircle2 } from 'lucide-react'
 
 interface PublishRecord {
   id: string
@@ -30,11 +36,28 @@ const PLATFORM_ICONS: Record<string, React.ElementType> = {
   WEIBO: MessageCircle,
 }
 
+interface StatusResult {
+  platform: string
+  statusText: string
+  publishedUrl?: string | null
+  title?: string | null
+  publishId?: string | null
+  status?: number
+}
+
 export default function PublishHistoryPage() {
   const router = useRouter()
   const { token } = useUserStore()
   const [records, setRecords] = useState<PublishRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [statusDialog, setStatusDialog] = useState<{
+    open: boolean
+    record: PublishRecord | null
+    status: StatusResult | null
+    loading: boolean
+  }>({ open: false, record: null, status: null, loading: false })
+  const [deleteRecord, setDeleteRecord] = useState<PublishRecord | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (token) loadRecords()
@@ -59,6 +82,49 @@ export default function PublishHistoryPage() {
       toast.error('网络错误，请重试')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchStatus = async (record: PublishRecord) => {
+    if (!token) return
+    setStatusDialog({ open: true, record, status: null, loading: true })
+    try {
+      const res = await fetch(`/api/content/publish-records/${record.id}/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setStatusDialog(prev => ({ ...prev, status: data, loading: false }))
+      } else {
+        toast.error(data.error || '查询失败')
+        setStatusDialog(prev => ({ ...prev, loading: false }))
+      }
+    } catch (e) {
+      toast.error('网络错误')
+      setStatusDialog(prev => ({ ...prev, loading: false }))
+    }
+  }
+
+  const handleDeleteRecord = async () => {
+    if (!deleteRecord || !token) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/content/publish-records/${deleteRecord.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.success) {
+        toast.success('已删除')
+        setDeleteRecord(null)
+        loadRecords()
+      } else {
+        toast.error(data.error || '删除失败')
+      }
+    } catch {
+      toast.error('网络错误')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -145,23 +211,31 @@ export default function PublishHistoryPage() {
                         </Badge>
                         <span className="text-sm text-gray-500">· {record.accountName}</span>
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+                      <div className="flex items-center gap-4 text-sm text-gray-500 mt-1 flex-wrap">
                         <span className="flex items-center gap-1">
                           <Calendar className="size-3" />
                           {formatDate(record.createdAt)}
                         </span>
-                        {record.publishedUrl && (
-                          <a
-                            href={record.publishedUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-600 hover:underline"
-                          >
-                            <ExternalLink className="size-3" />
-                            查看文章
-                          </a>
-                        )}
                       </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-gray-300"
+                        onClick={() => fetchStatus(record)}
+                      >
+                        <Info className="size-4 mr-1" />
+                        查看发布状态
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-gray-300 text-gray-500 hover:text-red-600 hover:border-red-300"
+                        onClick={() => setDeleteRecord(record)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
                     </div>
                   </div>
                 )
@@ -170,6 +244,109 @@ export default function PublishHistoryPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={statusDialog.open} onOpenChange={(open) => setStatusDialog(prev => ({ ...prev, open }))}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 shadow-xl rounded-xl">
+          <DialogHeader className="pb-2">
+            <DialogTitle className="text-foreground text-lg">
+              {statusDialog.record?.title || '发布状态'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-1">
+            {statusDialog.loading ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2.5 text-muted-foreground py-2">
+                  <Loader2 className="size-5 animate-spin text-primary" />
+                  <span className="text-sm">查询中...</span>
+                </div>
+                {(statusDialog.record?.publishedUrl && (
+                  <a
+                    href={statusDialog.record.publishedUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-primary hover:underline text-sm rounded-lg bg-primary/5 px-3 py-2"
+                  >
+                    <ExternalLink className="size-4 shrink-0" />
+                    点击此处查看文章
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="flex gap-4">
+                <div className="flex-1 min-w-0 space-y-4">
+                  {statusDialog.status?.statusText === '发布成功' && (
+                    <div className="flex items-center gap-2.5 rounded-lg bg-green-50 dark:bg-green-950/40 px-3 py-2.5 border border-green-200 dark:border-green-800">
+                      <CheckCircle2 className="size-5 shrink-0 text-green-600 dark:text-green-400" />
+                      <span className="text-sm font-medium text-green-700 dark:text-green-300">发布成功</span>
+                    </div>
+                  )}
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">平台</p>
+                    <div className="flex items-center gap-2">
+                      <MessageCircle className="size-4 text-muted-foreground shrink-0" />
+                      <p className="text-foreground font-medium text-sm">
+                        {statusDialog.status?.platform === 'WECHAT'
+                          ? '微信公众号'
+                          : statusDialog.status?.platform ?? statusDialog.record?.platformName ?? '-'}
+                      </p>
+                    </div>
+                  </div>
+                  {statusDialog.status && statusDialog.status.statusText !== '发布成功' && (
+                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">发布状态</p>
+                      <p className="text-foreground font-medium text-sm">{statusDialog.status.statusText}</p>
+                    </div>
+                  )}
+                  {(statusDialog.status?.publishedUrl || statusDialog.record?.publishedUrl) && (
+                    <a
+                      href={statusDialog.status?.publishedUrl || statusDialog.record?.publishedUrl || ''}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-primary hover:underline text-sm rounded-lg bg-primary/5 hover:bg-primary/10 px-3 py-2.5 transition-colors"
+                    >
+                      <ExternalLink className="size-4 shrink-0" />
+                      点击此处查看文章
+                    </a>
+                  )}
+                </div>
+                {statusDialog.record?.coverImage && (
+                  <div className="shrink-0">
+                    <img
+                      src={statusDialog.record.coverImage}
+                      alt=""
+                      className="w-20 h-20 object-cover rounded-lg border border-border shadow-sm"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteRecord} onOpenChange={(open) => !open && setDeleteRecord(null)}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">删除发布记录</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            确定要删除此发布记录吗？仅删除本应用内的记录，不会删除远程平台（如微信公众号）上的文章。
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setDeleteRecord(null)} disabled={deleting}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteRecord}
+              disabled={deleting}
+            >
+              {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4 mr-1" />}
+              {deleting ? '删除中...' : '删除'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
