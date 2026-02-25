@@ -47,8 +47,9 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   const intent = intentTypeMatch ? intentTypeMatch[1] : null;
   
   // 提取 workflowType，支持多种格式
+  // 注：content-creation 为文章创作工作流 resume 时存储的 workflowType
   let workflowType: 'social-media' | 'article' | null = null;
-  if (intent === 'article-creation-workflow' || intent === 'article') {
+  if (intent === 'article-creation-workflow' || intent === 'article' || intent === 'content-creation') {
     workflowType = 'article';
   } else if (intent === 'social-media-post' || intent === 'social-media') {
     workflowType = 'social-media';
@@ -310,7 +311,7 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   };
 
   // 处理跳转到编辑器（不创建草稿，只是跳转）
-  const handleSaveDraft = async (data: { title: string; content: string; images: string[]; coverImage?: string }) => {
+  const handleSaveDraft = async (data: { title: string; content: string; images: string[]; coverImage?: string; rawContent?: string }) => {
     console.log('[handleSaveDraft] 开始跳转到编辑器');
     console.log('[handleSaveDraft] Token exists:', !!token);
     
@@ -423,10 +424,21 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
       // 确定 contentType
       const contentType = workflowType === 'social-media' ? 'image-text' : 'article';
       
+      // 文章编辑器需要完整 Markdown（含 ![image](url)），将图片 URL 替换为上传后的 URL
+      let finalContent = data.content;
+      if (contentType === 'article' && data.rawContent && uploadedImageUrls.length > 0) {
+        let imageIndex = 0;
+        finalContent = data.rawContent.replace(/!\[([^\]]*)\]\(([^\)]*)\)/g, (_match, alt, _url) => {
+          const newUrl = uploadedImageUrls[imageIndex] ?? _url;
+          imageIndex++;
+          return `![${alt}](${newUrl})`;
+        });
+      }
+      
       // 将数据保存到 sessionStorage，供编辑器使用
       const editorData = {
         title: data.title,
-        content: data.content,
+        content: finalContent,
         images: uploadedImageUrls,
         coverImage: coverImageUrl,
         contentType: contentType,

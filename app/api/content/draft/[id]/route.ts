@@ -30,12 +30,12 @@ export async function GET(
 
     const { id } = await params
 
-    // 获取草稿详情
+    // 获取作品详情（草稿或已发布，用于查看/发布流程）
     const draft = await prisma.content.findFirst({
       where: {
         id,
         userId: user.id,
-        status: 'DRAFT'
+        status: { in: ['DRAFT', 'PUBLISHED'] }
       },
       select: {
         id: true,
@@ -45,6 +45,7 @@ export async function GET(
         coverImage: true,
         contentType: true,
         status: true,
+        publishedAt: true,
         createdAt: true,
         updatedAt: true
       }

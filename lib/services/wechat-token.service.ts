@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 微信公众号Access Token自动管理服务
  * Feature: 005-wechat-integration
  * 
@@ -63,48 +63,51 @@ export class WechatTokenService {
   /**
    * 使用分布式锁获取Token
    * 防止并发请求导致多次调用微信API
+   * 当 Redis 不可用或无法获取锁时，降级为直接调用微信 API（适用于单实例/开发环境）
    */
   private async fetchWithLock(userId: string, configId: string): Promise<string> {
     const lockKey = `${WECHAT_LOCK_KEY_PREFIX}${userId}:${configId}`
-    
-    // 尝试获取锁
+
+    // 尝试获取锁（Redis 不可用时 acquireLock 返回 acquired: false）
     const lockResult = await acquireLock(lockKey, {
       ttl: WECHAT_LOCK_TTL,
-      retryCount: 3,
-      retryDelay: 100
+      retryCount: 5,
+      retryDelay: 200,
     })
 
-    if (!lockResult.acquired) {
-      // 获取锁失败，可能其他进程正在获取token
-      // 等待一小段时间后重新从缓存读取
-      await this.delay(200)
+    if (lockResult.acquired) {
+      try {
+        // 双重检查：获取锁后再次检查缓存
+        const cachedToken = await this.getCachedToken(userId, configId)
+        if (cachedToken && !shouldRefreshToken(cachedToken.expiresAt, WECHAT_TOKEN_REFRESH_THRESHOLD)) {
+          return cachedToken.accessToken
+        }
+
+        // 从微信API获取新token
+        const tokenData = await this.fetchAccessToken(userId, configId)
+        await this.cacheToken(userId, configId, tokenData)
+        return tokenData.accessToken
+      } finally {
+        if (lockResult.lockValue) {
+          await releaseLock(lockKey, lockResult.lockValue)
+        }
+      }
+    }
+
+    // 获取锁失败：等待后多次尝试从缓存读取（可能其他进程已刷新）
+    for (let i = 0; i < 5; i++) {
+      await this.delay(300 + i * 200)
       const cachedToken = await this.getCachedToken(userId, configId)
       if (cachedToken) {
         return cachedToken.accessToken
       }
-      throw new Error('获取Token失败：无法获取分布式锁')
     }
 
-    try {
-      // 双重检查：获取锁后再次检查缓存
-      const cachedToken = await this.getCachedToken(userId, configId)
-      if (cachedToken && !shouldRefreshToken(cachedToken.expiresAt, WECHAT_TOKEN_REFRESH_THRESHOLD)) {
-        return cachedToken.accessToken
-      }
-
-      // 从微信API获取新token
-      const tokenData = await this.fetchAccessToken(userId, configId)
-      
-      // 缓存token
-      await this.cacheToken(userId, configId, tokenData)
-      
-      return tokenData.accessToken
-    } finally {
-      // 释放锁
-      if (lockResult.lockValue) {
-        await releaseLock(lockKey, lockResult.lockValue)
-      }
-    }
+    // 降级：Redis 不可用或锁竞争时，直接调用微信 API（单实例场景可接受）
+    console.warn('[Token] 无法获取分布式锁或 Redis 不可用，降级为直接获取 Token')
+    const tokenData = await this.fetchAccessToken(userId, configId)
+    await this.cacheToken(userId, configId, tokenData)
+    return tokenData.accessToken
   }
 
   /**

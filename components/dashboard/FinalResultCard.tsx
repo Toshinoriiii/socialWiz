@@ -11,7 +11,7 @@ interface FinalResultCardProps {
   content: string;
   wordCount?: number;
   workflowType?: 'article' | 'social-media' | null;
-  onSaveDraft?: (data: { title: string; content: string; images: string[]; coverImage?: string }) => void;
+  onSaveDraft?: (data: { title: string; content: string; images: string[]; coverImage?: string; rawContent?: string }) => void;
 }
 
 // 解析 Markdown 内容
@@ -269,7 +269,8 @@ export function FinalResultCard({ content, wordCount, workflowType, onSaveDraft 
         imagesCount: parsedData.images.length,
         images: parsedData.images
       });
-      await onSaveDraft(parsedData);
+      // 文章编辑器需要完整 Markdown（含 ![image](url)），传递 rawContent
+      await onSaveDraft({ ...parsedData, rawContent: content });
     } catch (error) {
       console.error('保存草稿失败:', error);
     } finally {

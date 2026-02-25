@@ -50,8 +50,7 @@ export async function POST(request: NextRequest) {
       const existingDraft = await prisma.content.findFirst({
         where: {
           id,
-          userId: user.id,
-          status: 'DRAFT'
+          userId: user.id
         }
       })
 
@@ -59,6 +58,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { error: '草稿不存在或无权限' },
           { status: 404 }
+        )
+      }
+
+      if (existingDraft.status === 'PUBLISHED') {
+        return NextResponse.json(
+          { error: '已发布的作品不可编辑' },
+          { status: 403 }
         )
       }
 
@@ -153,11 +159,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 获取当前用户的所有草稿
+    // 获取当前用户的作品（草稿 + 已发布）
     const drafts = await prisma.content.findMany({
       where: {
         userId: user.id,
-        status: 'DRAFT'
+        status: { in: ['DRAFT', 'PUBLISHED'] }
       },
       select: {
         id: true,
@@ -166,6 +172,7 @@ export async function GET(request: NextRequest) {
         images: true,
         coverImage: true,
         contentType: true,
+        publishedAt: true,
         createdAt: true,
         updatedAt: true
       },

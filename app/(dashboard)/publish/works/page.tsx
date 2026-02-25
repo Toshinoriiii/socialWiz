@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { useUserStore } from '@/store/user.store'
+import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import { FileText, Edit, Calendar, Loader2, Image as ImageIcon } from 'lucide-react'
+import { FileText, Edit, Send, Calendar, Loader2, Image as ImageIcon, History } from 'lucide-react'
 
 interface Draft {
   id: string
@@ -17,6 +18,7 @@ interface Draft {
   images?: string[]
   coverImage?: string | null
   contentType?: string | null // 'image-text' | 'article'
+  publishedAt?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -58,6 +60,10 @@ export default function WorksManagementPage() {
   }
 
   const handleEdit = (draft: Draft) => {
+    if (draft.status === 'PUBLISHED') {
+      toast.error('已发布的作品不可编辑')
+      return
+    }
     // 根据保存的 contentType 判断编辑器类型（根据原始 workflow 类型）
     // 如果 contentType 是 'image-text'，使用图文编辑器
     // 如果 contentType 是 'article'，使用文章编辑器
@@ -159,8 +165,11 @@ export default function WorksManagementPage() {
               {drafts.map((draft, index) => (
                 <div key={draft.id}>
                   <div
-                    className="flex items-center justify-between p-4 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition-all duration-150 cursor-pointer group"
-                    onClick={() => handleEdit(draft)}
+                    className={cn(
+                      "flex items-center justify-between p-4 rounded-lg border border-gray-300 bg-white transition-all duration-150 group",
+                      draft.status !== 'PUBLISHED' && "hover:bg-gray-50 cursor-pointer"
+                    )}
+                    onClick={() => draft.status !== 'PUBLISHED' && handleEdit(draft)}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-2">
@@ -192,18 +201,60 @@ export default function WorksManagementPage() {
                         )}
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="ml-4 border-gray-300 text-black hover:bg-gray-100 transition-all duration-150 shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEdit(draft)
-                      }}
-                    >
-                      <Edit className="size-4 mr-2" />
-                      编辑
-                    </Button>
+                    <div className="ml-4 flex gap-2 shrink-0">
+                      {draft.status === 'PUBLISHED' ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-gray-300 text-gray-400 cursor-not-allowed"
+                            disabled
+                          >
+                            <Edit className="size-4 mr-2" />
+                            已发布不可编辑
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-gray-300 text-black hover:bg-gray-100"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              router.push('/publish/history')
+                            }}
+                          >
+                            <History className="size-4 mr-2" />
+                            查看发布记录
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-gray-300 text-black hover:bg-gray-100 transition-all duration-150"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEdit(draft)
+                            }}
+                          >
+                            <Edit className="size-4 mr-2" />
+                            编辑
+                          </Button>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="bg-black text-white hover:bg-gray-800 transition-all duration-150"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              router.push(`/publish/works/${draft.id}/publish`)
+                            }}
+                          >
+                            <Send className="size-4 mr-2" />
+                            发布
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   {index < drafts.length - 1 && (
                     <Separator className="bg-gray-300 my-4" />

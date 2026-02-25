@@ -1,0 +1,804 @@
+'use client'
+
+/**
+ * 作品发布流程页面
+ * 步骤：选择平台账号 → 选择平台配置 → 发布中 → 发布完成
+ * - 只显示用户已绑定的平台账号
+ * - 只显示用户已创建的平台配置
+ */
+
+import { useState, useEffect } from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+import { useUserStore } from '@/store/user.store'
+import { toast } from 'sonner'
+import {
+  ArrowLeft,
+  Send,
+  Settings,
+  Loader2,
+  Check,
+  CheckCircle2,
+  User,
+  RefreshCw,
+  Search,
+  MessageCircle,
+  MessageSquare,
+} from 'lucide-react'
+
+interface PlatformAccount {
+  id: string
+  platform: string
+  platformUsername: string
+  isConnected: boolean
+  canPublish?: boolean
+  accountName?: string
+  appId?: string
+}
+
+interface PlatformPublishConfig {
+  id: string
+  platform: string
+  configName: string
+  description?: string
+  configData: Record<string, unknown>
+  isDefault: boolean
+}
+
+interface Draft {
+  id: string
+  title: string
+  content: string
+  coverImage?: string | null
+  images?: string[]
+  contentType?: string | null
+  status?: string
+  publishedAt?: string | null
+}
+
+const STEPS = [
+  { id: 1, key: 'accounts', label: '选择平台账号', desc: '选择要发布的平台账号', icon: User },
+  { id: 2, key: 'config', label: '选择平台配置', desc: '为各平台选择发布配置', icon: Settings },
+  { id: 3, key: 'publishing', label: '发布中', desc: '正在执行发布任务', icon: Send },
+  { id: 4, key: 'complete', label: '发布完成', desc: '发布任务已完成', icon: CheckCircle2 },
+]
+
+const PLATFORM_INFO: Record<string, { name: string; icon: React.ElementType }> = {
+  WECHAT: { name: '微信公众号', icon: MessageCircle },
+  WEIBO: { name: '微博', icon: MessageSquare },
+  DOUYIN: { name: '抖音', icon: MessageSquare },
+  XIAOHONGSHU: { name: '小红书', icon: MessageSquare },
+}
+
+export default function PublishFlowPage() {
+  const router = useRouter()
+  const params = useParams()
+  const draftId = params?.draftId as string
+  const { token, user } = useUserStore()
+
+  const [currentStep, setCurrentStep] = useState(1)
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const [accounts, setAccounts] = useState<PlatformAccount[]>([])
+  const [configs, setConfigs] = useState<PlatformPublishConfig[]>([])
+  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set())
+  const [accountConfigMap, setAccountConfigMap] = useState<Record<string, string>>({})
+  const [publishResults, setPublishResults] = useState<Array<{ accountId: string; success: boolean; message?: string }>>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [platformFilter, setPlatformFilter] = useState<string>('all')
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+
+  // 加载草稿
+  useEffect(() => {
+    if (draftId && token) {
+      loadDraft()
+    }
+  }, [draftId, token])
+
+  // 加载已绑定账号
+  useEffect(() => {
+    if (token && currentStep <= 2) {
+      loadAccounts()
+    }
+  }, [token, currentStep])
+
+  // 加载平台配置（当选择了账号后进入步骤2时）
+  useEffect(() => {
+    if (!user?.id || selectedAccountIds.size === 0 || currentStep !== 2) return
+    const platforms = [...new Set(Array.from(selectedAccountIds).map(id => {
+      const acc = accounts.find(a => a.id === id)
+      return acc?.platform
+    }).filter(Boolean))] as string[]
+    if (platforms.length === 0) return
+
+    let cancelled = false
+    const fetchConfigs = async () => {
+      try {
+        const allConfigs: PlatformPublishConfig[] = []
+        for (const platform of platforms) {
+          const res = await fetch(
+            `/api/platforms/publish-configs?userId=${user.id}&platform=${platform}`
+          )
+          if (res.ok) {
+            const data = await res.json()
+            allConfigs.push(...(data.configs || []))
+          }
+        }
+        if (!cancelled) setConfigs(allConfigs)
+      } catch (e) {
+        console.error('加载配置失败:', e)
+        if (!cancelled) toast.error('加载配置失败')
+      }
+    }
+    fetchConfigs()
+    return () => { cancelled = true }
+  }, [user?.id, selectedAccountIds, currentStep, accounts])
+
+  const loadDraft = async () => {
+    if (!token) return
+    try {
+      const res = await fetch(`/api/content/draft/${draftId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setDraft(data.draft)
+      } else {
+        const err = await res.json()
+        toast.error(err.error || '加载草稿失败')
+        router.push('/publish/works')
+      }
+    } catch (e) {
+      console.error('加载草稿失败:', e)
+      toast.error('网络错误')
+      router.push('/publish/works')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadAccounts = async () => {
+    if (!token) return
+    setRefreshing(true)
+    try {
+      const [platformsRes, wechatRes] = await Promise.all([
+        fetch('/api/platforms', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/platforms/wechat/config', { headers: { Authorization: `Bearer ${token}` } }),
+      ])
+
+      const list: PlatformAccount[] = []
+
+      if (platformsRes.ok) {
+        const data = await platformsRes.json()
+        data.forEach((a: any) => {
+          if (a.isConnected) list.push({
+            id: a.id,
+            platform: a.platform,
+            platformUsername: a.platformUsername,
+            isConnected: a.isConnected,
+          })
+        })
+      }
+
+      if (wechatRes.ok) {
+        const wechatConfigs = await wechatRes.json()
+        wechatConfigs.forEach((c: any) => {
+          if (c.isActive && c.canPublish) {
+            list.push({
+              id: c.id,
+              platform: 'WECHAT',
+              platformUsername: c.accountName || c.appId,
+              isConnected: c.isActive,
+              canPublish: c.canPublish,
+              accountName: c.accountName,
+              appId: c.appId,
+            })
+          }
+        })
+      }
+
+      setAccounts(list)
+    } catch (e) {
+      console.error('加载账号失败:', e)
+      toast.error('加载账号失败')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const toggleAccount = (id: string) => {
+    const acc = accounts.find(a => a.id === id)
+    if (!acc?.isConnected) return
+
+    setSelectedAccountIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const filteredAccounts = accounts.filter(acc => {
+    const matchSearch = !searchQuery || 
+      acc.platformUsername?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (PLATFORM_INFO[acc.platform]?.name || acc.platform).toLowerCase().includes(searchQuery.toLowerCase())
+    const matchPlatform = platformFilter === 'all' || acc.platform === platformFilter
+    return matchSearch && matchPlatform
+  })
+
+  const selectedAccounts = accounts.filter(a => selectedAccountIds.has(a.id))
+
+  const canGoNextStep1 = selectedAccountIds.size > 0
+  const canGoNextStep2 = selectedAccounts.every(acc => {
+    if (acc.platform !== 'WECHAT') return true
+    const platformConfigs = configs.filter(c => c.platform === acc.platform)
+    if (platformConfigs.length === 0) return false
+    const configId = accountConfigMap[acc.id]
+    return !!(configId && platformConfigs.some(c => c.id === configId))
+  })
+
+  const handleNext = () => {
+    if (currentStep === 1 && !canGoNextStep1) {
+      toast.error('请至少选择一个平台账号')
+      return
+    }
+    if (currentStep === 2 && !canGoNextStep2) {
+      toast.error('请为每个已选账号选择平台配置（如该平台无配置则可跳过）')
+      return
+    }
+    if (currentStep < 4) setCurrentStep(s => s + 1)
+    if (currentStep === 2) startPublish()
+  }
+
+  const startPublish = async () => {
+    if (!draft || !token) return
+    setPublishing(true)
+    const results: Array<{ accountId: string; success: boolean; message?: string }> = []
+
+    for (const acc of selectedAccounts) {
+      // 统一发布接口：将配置项与平台发布方法结合
+      const publishConfigId = accountConfigMap[acc.id]
+
+      if (acc.platform === 'WECHAT') {
+        if (!publishConfigId) {
+          results.push({ accountId: acc.id, success: false, message: '未选择平台配置' })
+          continue
+        }
+        const coverUrl = draft.coverImage || (draft.images?.[0])
+        if (!coverUrl) {
+          results.push({ accountId: acc.id, success: false, message: '需要封面图' })
+          continue
+        }
+        let imageFile: File
+        try {
+          const imgRes = await fetch(coverUrl)
+          const blob = await imgRes.blob()
+          imageFile = new File([blob], 'cover.jpg', { type: blob.type || 'image/jpeg' })
+        } catch {
+          results.push({ accountId: acc.id, success: false, message: '封面图获取失败' })
+          continue
+        }
+
+        const formData = new FormData()
+        formData.append('contentId', draft.id)
+        formData.append('platform', 'WECHAT')
+        formData.append('accountId', acc.id)
+        formData.append('publishConfigId', publishConfigId)
+        formData.append('title', draft.title)
+        formData.append('content', draft.content)
+        formData.append('image', imageFile)
+
+        const res = await fetch('/api/platforms/publish', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        })
+        const data = await res.json().catch(() => ({}))
+        results.push({
+          accountId: acc.id,
+          success: res.ok && data.success,
+          message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+        })
+      } else if (acc.platform === 'WEIBO') {
+        const formData = new FormData()
+        formData.append('contentId', draft.id)
+        formData.append('platform', 'WEIBO')
+        formData.append('accountId', acc.id)
+        if (publishConfigId) formData.append('publishConfigId', publishConfigId)
+        formData.append('title', draft.title)
+        formData.append('content', draft.content)
+
+        const res = await fetch('/api/platforms/publish', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        })
+        const data = await res.json().catch(() => ({}))
+        results.push({
+          accountId: acc.id,
+          success: res.ok && data.success,
+          message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+        })
+      } else {
+        results.push({ accountId: acc.id, success: false, message: '暂不支持该平台发布' })
+      }
+    }
+
+    setPublishResults(results)
+    setPublishing(false)
+    setCurrentStep(4)
+  }
+
+  const handleBack = () => router.push('/publish/works')
+
+  const handlePrevStep = () => {
+    if (currentStep > 1) setCurrentStep(s => s - 1)
+  }
+
+  if (loading || !draft) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <div className="flex size-12 items-center justify-center rounded-full bg-foreground text-background">
+          <Loader2 className="size-6 animate-spin" />
+        </div>
+        <p className="text-sm text-muted-foreground">加载中...</p>
+      </div>
+    )
+  }
+
+  if (draft.status === 'PUBLISHED') {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" size="sm" onClick={handleBack} className="text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="size-4 mr-2" />
+            返回作品列表
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="py-16">
+            <div className="flex flex-col items-center justify-center text-center">
+              <CheckCircle2 className="size-14 text-green-600 mb-4" />
+              <p className="text-lg font-medium">该作品已发布</p>
+              <p className="text-sm text-muted-foreground mt-1">已发布的作品不可再次发布</p>
+              <Button
+                variant="default"
+                className="mt-6 bg-black hover:bg-gray-800"
+                onClick={() => router.push('/publish/history')}
+              >
+                查看发布记录
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* 顶部导航 */}
+      <div className="flex items-center justify-between">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={handleBack}
+        >
+          <ArrowLeft className="size-4 mr-2" />
+          返回作品列表
+        </Button>
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-sm text-muted-foreground font-medium">发布文章</span>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
+            {draft.title || '未命名作品'}
+          </h1>
+        </div>
+        <div className="w-24" />
+      </div>
+
+      {/* 步骤条 - 单框占满宽度，步骤间黑色连接线 */}
+      <div className="pb-6 w-full">
+        <Card className="w-full">
+          <CardContent className="p-4 md:p-6">
+            <nav aria-label="发布进度">
+              <ol className="flex w-full">
+                {STEPS.map((step, i) => {
+                  const StepIcon = step.icon
+                  const isActive = currentStep === step.id
+                  const isDone = currentStep > step.id
+                  const leftConnectorFilled = i > 0 && currentStep > STEPS[i - 1].id
+
+                  return (
+                    <li key={step.id} className="flex flex-1 basis-0 items-start min-w-0">
+                      {/* 连接线（左侧）- 与圆圈中心对齐 */}
+                      {i > 0 && (
+                        <div
+                          className={cn(
+                            'flex-1 min-w-[24px] h-[2px] rounded-full shrink-0 mt-6',
+                            leftConnectorFilled ? 'bg-black' : 'bg-black/30'
+                          )}
+                        />
+                      )}
+                      {/* 步骤：logo + 文字同一区域 */}
+                      <div className="flex flex-col items-center px-2 shrink-0">
+                        <div
+                          className={cn(
+                            'flex size-12 items-center justify-center rounded-full [&_svg]:size-6 [&_svg]:shrink-0',
+                            isActive && 'bg-black text-white shadow-sm',
+                            isDone && 'bg-black text-white',
+                            !isActive && !isDone && 'bg-muted text-muted-foreground'
+                          )}
+                        >
+                          {isDone ? (
+                            <Check className="size-6" />
+                          ) : (
+                            <StepIcon className="size-6" />
+                          )}
+                        </div>
+                        <div className="mt-3 text-center">
+                          <span
+                            className={cn(
+                              'text-sm font-medium block',
+                              (isActive || isDone) && 'text-black',
+                              !isActive && !isDone && 'text-muted-foreground'
+                            )}
+                          >
+                            {step.label}
+                          </span>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{step.desc}</p>
+                        </div>
+                      </div>
+                      {/* 连接线（右侧）- 与圆圈中心对齐 */}
+                      {i < STEPS.length - 1 && (
+                        <div
+                          className={cn(
+                            'flex-1 min-w-[24px] h-[2px] rounded-full shrink-0 mt-6',
+                            isDone ? 'bg-black' : 'bg-black/30'
+                          )}
+                        />
+                      )}
+                    </li>
+                  )
+                })}
+              </ol>
+            </nav>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 当前步骤内容 */}
+      <Card>
+        {currentStep === 1 && (
+          <>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>选择发布账号</CardTitle>
+                  <CardDescription className="mt-1.5">
+                    选择要发布文章的平台账号 {selectedAccountIds.size > 0 && (
+                      <span className="text-foreground font-medium">· 已选 {selectedAccountIds.size} 个</span>
+                    )}
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => loadAccounts()}
+                  disabled={refreshing}
+                  className="shrink-0"
+                >
+                  <RefreshCw className={`size-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                  刷新
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-3 mb-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                  <Input
+                    placeholder="搜索账号或平台..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                <Select value={platformFilter} onValueChange={setPlatformFilter}>
+                  <SelectTrigger className="w-[140px] shrink-0">
+                    <SelectValue placeholder="平台筛选" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部平台</SelectItem>
+                    {Object.entries(PLATFORM_INFO).map(([k, v]) => (
+                      <SelectItem key={k} value={k}>{v.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 max-h-[280px] overflow-y-auto rounded-lg border border-border">
+                {filteredAccounts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      {accounts.length === 0
+                        ? '暂无已绑定的平台账号'
+                        : '没有符合条件的账号'}
+                    </p>
+                    {accounts.length === 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push('/accounts')}
+                      >
+                        前往账号管理
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  filteredAccounts.map((acc) => {
+                    const info = PLATFORM_INFO[acc.platform] || { name: acc.platform, icon: User }
+                    const Icon = info.icon
+                    const selected = selectedAccountIds.has(acc.id)
+                    const disabled = !acc.isConnected
+
+                    return (
+                      <div
+                        key={acc.id}
+                        onClick={() => !disabled && toggleAccount(acc.id)}
+                        className={cn(
+                          'flex items-center gap-4 px-4 py-3 cursor-pointer transition-colors border-b border-border last:border-b-0 first:rounded-t-lg last:rounded-b-lg',
+                          selected && 'bg-accent',
+                          !selected && !disabled && 'hover:bg-muted/50',
+                          disabled && 'opacity-50 cursor-not-allowed'
+                        )}
+                      >
+                        <div className={cn(
+                          'flex size-5 shrink-0 items-center justify-center rounded border transition-colors',
+                          selected ? 'border-foreground bg-background' : 'border-input'
+                        )}>
+                          {selected && <Check className="size-3.5 text-foreground stroke-[2.5]" />}
+                        </div>
+                        <div className={cn(
+                          'flex size-10 shrink-0 items-center justify-center rounded-lg',
+                          info.name === '微信公众号' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
+                        )}>
+                          <Icon className="size-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold truncate text-foreground">{info.name}</div>
+                          <div className="text-sm text-muted-foreground truncate">{acc.platformUsername}</div>
+                        </div>
+                        {acc.canPublish === false && (
+                          <Badge variant="secondary" className="text-xs shrink-0">仅查看</Badge>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </CardContent>
+          </>
+        )}
+
+        {currentStep === 2 && (
+          <CardContent className="pt-6">
+            <CardHeader className="px-0 pt-0">
+              <CardTitle>选择平台配置</CardTitle>
+              <CardDescription className="mt-1.5">按平台为每个账号选择发布配置（作者、原文链接等）</CardDescription>
+            </CardHeader>
+            <div className="space-y-6 mt-4">
+              {(() => {
+                // 按平台分组
+                const accountsByPlatform = selectedAccounts.reduce(
+                  (acc, account) => {
+                    const p = account.platform
+                    if (!acc[p]) acc[p] = []
+                    acc[p].push(account)
+                    return acc
+                  },
+                  {} as Record<string, typeof selectedAccounts>
+                )
+
+                return Object.entries(accountsByPlatform).map(([platform, platformAccounts]) => {
+                  const platformConfigs = configs.filter(c => c.platform === platform)
+                  const info = PLATFORM_INFO[platform] || { name: platform, icon: User }
+                  const Icon = info.icon
+
+                  return (
+                    <div key={platform} className="rounded-lg border border-border overflow-visible">
+                      {/* 平台标题 */}
+                      <div className="flex items-center gap-2 px-4 py-3 bg-muted/30 border-b border-border">
+                        <div className={cn(
+                          'flex size-9 items-center justify-center rounded-lg shrink-0',
+                          info.name === '微信公众号' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
+                        )}>
+                          <Icon className="size-5" />
+                        </div>
+                        <span className="font-semibold text-foreground">{info.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {platformConfigs.length > 0
+                            ? `（${platformConfigs.length} 个可选配置）`
+                            : `（${platformAccounts.length} 个已选账号）`
+                          }
+                        </span>
+                      </div>
+                      {/* 该平台下的账号及配置选择 */}
+                      <div className="divide-y divide-border">
+                        {platformConfigs.length === 0 ? (
+                          <div className="px-4 py-4">
+                            <p className="text-sm text-muted-foreground mb-3">该平台暂无发布配置，请先在平台配置中创建</p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => router.push('/platforms')}
+                            >
+                              前往平台配置
+                            </Button>
+                          </div>
+                        ) : (
+                          platformAccounts.map((acc) => (
+                            <div key={acc.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                              <div className="min-w-0">
+                                <span className="text-sm text-foreground">
+                                  <span className="text-muted-foreground">账号：</span>
+                                  <span className="font-medium">{acc.platformUsername}</span>
+                                </span>
+                              </div>
+                              <Select
+                                value={accountConfigMap[acc.id] || ''}
+                                onValueChange={(v) => setAccountConfigMap(prev => ({ ...prev, [acc.id]: v }))}
+                              >
+                                <SelectTrigger className="w-[220px] shrink-0">
+                                  <SelectValue placeholder="选择配置..." />
+                                </SelectTrigger>
+                                <SelectContent
+                                  className="z-[9999]"
+                                  side="top"
+                                  position="popper"
+                                  sideOffset={4}
+                                >
+                                  {platformConfigs.map(c => (
+                                    <SelectItem key={c.id} value={c.id}>{c.configName}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          </CardContent>
+        )}
+
+        {currentStep === 3 && publishing && (
+          <CardContent className="py-16">
+            <div className="flex flex-col items-center justify-center">
+              <div className="flex size-14 items-center justify-center rounded-full bg-foreground text-background mb-4">
+                <Send className="size-7" />
+              </div>
+              <p className="text-foreground font-medium">正在执行发布任务...</p>
+              <p className="text-sm text-muted-foreground mt-1">请稍候</p>
+            </div>
+          </CardContent>
+        )}
+
+        {currentStep === 4 && (
+          <CardContent className="pt-6">
+            <CardHeader className="px-0 pt-0">
+              <CardTitle>发布完成</CardTitle>
+              <CardDescription className="mt-1.5">查看各平台发布结果</CardDescription>
+            </CardHeader>
+            <div className="space-y-3 mt-4">
+              {selectedAccounts.map((acc) => {
+                const result = publishResults.find(r => r.accountId === acc.id)
+                const info = PLATFORM_INFO[acc.platform] || { name: acc.platform, icon: User }
+                const Icon = info.icon
+                const success = result?.success ?? false
+
+                return (
+                  <div
+                    key={acc.id}
+                    className={cn(
+                      'flex items-center gap-4 p-4 rounded-lg border',
+                      success ? 'border-border bg-muted/20' : 'border-destructive/50 bg-destructive/5'
+                    )}
+                  >
+                    <div className={cn(
+                      'flex size-10 shrink-0 items-center justify-center rounded-full',
+                      success ? 'bg-foreground text-background' : 'bg-destructive text-destructive-foreground'
+                    )}>
+                      {success ? (
+                        <Check className="size-5" />
+                      ) : (
+                        <span className="text-sm font-bold">!</span>
+                      )}
+                    </div>
+                    <div className={cn(
+                      'flex size-10 shrink-0 items-center justify-center rounded-lg',
+                      info.name === '微信公众号' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
+                    )}>
+                      <Icon className="size-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-foreground">{acc.platformUsername}</div>
+                      <div className="text-sm text-muted-foreground">{info.name}</div>
+                    </div>
+                    <span className={cn(
+                      'text-sm shrink-0',
+                      success ? 'text-foreground' : 'text-destructive'
+                    )}>
+                      {result?.message || (success ? '发布成功' : '发布失败')}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* 底部按钮 - 保持较低层级，确保下拉框在上方显示 */}
+      <div className="relative z-0 flex justify-between">
+        {currentStep > 1 && currentStep < 4 && !publishing ? (
+          <Button variant="outline" onClick={handlePrevStep} className="flex items-center gap-2">
+            <ArrowLeft className="size-4" />
+            返回上一步
+          </Button>
+        ) : (
+          <Button variant="outline" onClick={handleBack}>
+            {currentStep === 4 ? '关闭' : '取消'}
+          </Button>
+        )}
+        {currentStep < 4 ? (
+          <Button
+            variant="default"
+            onClick={handleNext}
+            disabled={
+              (currentStep === 1 && !canGoNextStep1) ||
+              (currentStep === 2 && (!canGoNextStep2 || publishing))
+            }
+            className={
+              (currentStep === 1 && canGoNextStep1) || (currentStep === 2 && canGoNextStep2 && !publishing)
+                ? 'bg-black text-white hover:bg-gray-800' : ''
+            }
+          >
+            {currentStep === 2 ? (
+              publishing ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  发布中...
+                </>
+              ) : (
+                <>
+                  <Send className="size-4 mr-2" />
+                  开始发布
+                </>
+              )
+            ) : (
+              '下一步'
+            )}
+          </Button>
+        ) : (
+          <Button onClick={handleBack}>返回作品列表</Button>
+        )}
+      </div>
+    </div>
+  )
+}

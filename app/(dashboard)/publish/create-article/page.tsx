@@ -74,6 +74,11 @@ export default function CreateArticlePage() {
       if (response.ok) {
         const data = await response.json()
         if (data.draft) {
+          if (data.draft.status === 'PUBLISHED') {
+            toast.error('已发布的作品不可编辑')
+            router.push('/publish/works')
+            return
+          }
           setTitle(data.draft.title || '')
           setContent(data.draft.content || '')
           setCoverImage(data.draft.coverImage || '')

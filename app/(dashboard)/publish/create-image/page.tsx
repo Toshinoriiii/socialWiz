@@ -73,6 +73,11 @@ export default function CreateImagePage() {
       if (response.ok) {
         const data = await response.json()
         if (data.draft) {
+          if (data.draft.status === 'PUBLISHED') {
+            toast.error('已发布的作品不可编辑')
+            router.push('/publish/works')
+            return
+          }
           console.log('[loadDraft] 加载的草稿数据:', {
             title: data.draft.title,
             contentLength: data.draft.content?.length,
