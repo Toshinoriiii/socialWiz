@@ -94,7 +94,7 @@ const navItems: NavItem[] = [
       },
       {
         id: 'works-management',
-        label: '作品管理',
+        label: '草稿管理',
         icon: <List className="size-4" />,
         href: '/publish/works'
       },

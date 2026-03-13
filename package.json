@@ -79,6 +79,7 @@
     "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.562.0",
+    "marked": "^17.0.0",
     "mastra": "^0.18.9",
     "motion": "^12.26.1",
     "nanoid": "^5.1.6",

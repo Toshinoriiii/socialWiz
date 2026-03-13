@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { Save, Eye, FileText, Loader2, Image as ImageIcon, X } from 'lucide-react'
+import { Save, Eye, FileText, Loader2, Image as ImageIcon, X, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { useUserStore } from '@/store/user.store'
 import '@uiw/react-md-editor/markdown-editor.css'
@@ -28,10 +28,12 @@ export default function CreateArticlePage() {
   const [content, setContent] = useState('')
   const [coverImage, setCoverImage] = useState('')
   const [coverImageUrl, setCoverImageUrl] = useState('')
+  const [coverUploading, setCoverUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
   const [previewMode, setPreviewMode] = useState<'edit' | 'live' | 'preview'>('edit')
   const loadedRef = useRef<string | null>(null)
+  const coverFileInputRef = useRef<HTMLInputElement>(null)
 
   // 如果是编辑模式，加载草稿内容
   // 或者从 AI 生成跳转过来，加载 sessionStorage 中的数据
@@ -190,6 +192,51 @@ export default function CreateArticlePage() {
     }
   }
 
+  const handleCoverImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files
+    if (!files || files.length === 0) return
+
+    const file = files[0]
+    if (!file.type.startsWith('image/')) {
+      toast.error('请选择有效的图片文件')
+      if (coverFileInputRef.current) coverFileInputRef.current.value = ''
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('图片大小不能超过 10MB')
+      if (coverFileInputRef.current) coverFileInputRef.current.value = ''
+      return
+    }
+
+    try {
+      setCoverUploading(true)
+      if (!token) {
+        toast.error('未登录，请先登录')
+        return
+      }
+      const formData = new FormData()
+      formData.append('images', file)
+      const response = await fetch('/api/content/images/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      const data = await response.json()
+      if (response.ok && data.imageUrls?.length > 0) {
+        setCoverImage(data.imageUrls[0])
+        toast.success('封面图上传成功')
+      } else {
+        toast.error(data.error || '上传失败')
+      }
+    } catch (error) {
+      console.error('上传封面失败:', error)
+      toast.error('网络错误，请重试')
+    } finally {
+      setCoverUploading(false)
+      if (coverFileInputRef.current) coverFileInputRef.current.value = ''
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-4 md:space-y-6">
@@ -255,21 +302,61 @@ export default function CreateArticlePage() {
                 </Button>
               </div>
             ) : (
-              <div className="flex gap-2">
-                <Input 
-                  placeholder="输入图片 URL" 
-                  value={coverImageUrl}
-                  onChange={(e) => setCoverImageUrl(e.target.value)}
-                  className="bg-white border-gray-300 text-black"
-                />
-                <Button 
-                  onClick={handleSetCoverFromUrl}
-                  variant="outline"
-                  className="shrink-0 border-gray-300 text-black hover:bg-gray-100"
-                >
-                  <ImageIcon className="size-4 mr-1" />
-                  设置
-                </Button>
+              <div className="space-y-3">
+                {/* 本地上传 */}
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors duration-150">
+                  <input
+                    ref={coverFileInputRef}
+                    type="file"
+                    id="cover-upload"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    onChange={handleCoverImageUpload}
+                    disabled={coverUploading}
+                    className="hidden"
+                  />
+                  <label
+                    htmlFor="cover-upload"
+                    className={`flex flex-col items-center gap-2 ${
+                      coverUploading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                    }`}
+                  >
+                    {coverUploading ? (
+                      <>
+                        <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                          <Loader2 className="size-6 text-gray-600 animate-spin" />
+                        </div>
+                        <p className="text-sm font-medium text-black">上传中...</p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                          <Upload className="size-6 text-gray-600" />
+                        </div>
+                        <p className="text-sm font-medium text-black">点击上传封面图</p>
+                        <p className="text-xs text-gray-500">支持 JPG、PNG、GIF、WebP，单张最大 10MB</p>
+                      </>
+                    )}
+                  </label>
+                </div>
+                {/* 或输入 URL */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500 shrink-0">或输入图片链接</span>
+                  <Input 
+                    placeholder="输入图片 URL" 
+                    value={coverImageUrl}
+                    onChange={(e) => setCoverImageUrl(e.target.value)}
+                    className="bg-white border-gray-300 text-black flex-1"
+                  />
+                  <Button 
+                    onClick={handleSetCoverFromUrl}
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 border-gray-300 text-black hover:bg-gray-100"
+                  >
+                    <ImageIcon className="size-4 mr-1" />
+                    设置
+                  </Button>
+                </div>
               </div>
             )}
           </div>

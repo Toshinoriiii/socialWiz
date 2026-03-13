@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useUserStore } from '@/store/user.store'
 import { toast } from 'sonner'
@@ -35,6 +36,7 @@ import {
   Search,
   MessageCircle,
   MessageSquare,
+  History as HistoryIcon,
 } from 'lucide-react'
 
 interface PlatformAccount {
@@ -81,6 +83,14 @@ const PLATFORM_INFO: Record<string, { name: string; icon: React.ElementType }> =
   XIAOHONGSHU: { name: '小红书', icon: MessageSquare },
 }
 
+/** 各平台支持的内容类型：微信仅支持文章，微博支持文章和图文 */
+const PLATFORM_CONTENT_SUPPORT: Record<string, ('article' | 'image-text')[]> = {
+  WECHAT: ['article'],
+  WEIBO: ['article', 'image-text'],
+  DOUYIN: ['article', 'image-text'],
+  XIAOHONGSHU: ['article', 'image-text'],
+}
+
 export default function PublishFlowPage() {
   const router = useRouter()
   const params = useParams()
@@ -113,6 +123,23 @@ export default function PublishFlowPage() {
       loadAccounts()
     }
   }, [token, currentStep])
+
+  // 草稿加载后清除不支持的平台选择（如图文草稿时清掉微信）
+  useEffect(() => {
+    if (!draft?.contentType || selectedAccountIds.size === 0) return
+    const ct = draft.contentType === 'image-text' ? 'image-text' : 'article'
+    const invalidIds = Array.from(selectedAccountIds).filter(id => {
+      const acc = accounts.find(a => a.id === id)
+      return acc && !(PLATFORM_CONTENT_SUPPORT[acc.platform]?.includes(ct))
+    })
+    if (invalidIds.length > 0) {
+      setSelectedAccountIds(prev => {
+        const next = new Set(prev)
+        invalidIds.forEach(id => next.delete(id))
+        return next
+      })
+    }
+  }, [draft?.contentType, accounts, selectedAccountIds])
 
   // 加载平台配置（当选择了账号后进入步骤2时）
   useEffect(() => {
@@ -230,15 +257,20 @@ export default function PublishFlowPage() {
     })
   }
 
+  const effectiveContentType = (draft?.contentType === 'image-text' ? 'image-text' : 'article') as 'article' | 'image-text'
+
   const filteredAccounts = accounts.filter(acc => {
-    const matchSearch = !searchQuery || 
+    const supportedTypes = PLATFORM_CONTENT_SUPPORT[acc.platform]
+    const supportsContent = supportedTypes?.includes(effectiveContentType) ?? false
+    if (!supportsContent) return false
+    const matchSearch = !searchQuery ||
       acc.platformUsername?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (PLATFORM_INFO[acc.platform]?.name || acc.platform).toLowerCase().includes(searchQuery.toLowerCase())
     const matchPlatform = platformFilter === 'all' || acc.platform === platformFilter
     return matchSearch && matchPlatform
   })
 
-  const selectedAccounts = accounts.filter(a => selectedAccountIds.has(a.id))
+  const selectedAccounts = accounts.filter(a => selectedAccountIds.has(a.id) && (PLATFORM_CONTENT_SUPPORT[a.platform]?.includes(effectiveContentType) ?? false))
 
   const canGoNextStep1 = selectedAccountIds.size > 0
   const canGoNextStep2 = selectedAccounts.every(acc => {
@@ -364,7 +396,7 @@ export default function PublishFlowPage() {
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={handleBack} className="text-muted-foreground hover:text-foreground">
             <ArrowLeft className="size-4 mr-2" />
-            返回作品列表
+            返回草稿管理
           </Button>
         </div>
         <Card>
@@ -398,10 +430,12 @@ export default function PublishFlowPage() {
           onClick={handleBack}
         >
           <ArrowLeft className="size-4 mr-2" />
-          返回作品列表
+          返回草稿管理
         </Button>
         <div className="flex flex-col items-center gap-1">
-          <span className="text-sm text-muted-foreground font-medium">发布文章</span>
+          <span className="text-sm text-muted-foreground font-medium">
+            {effectiveContentType === 'image-text' ? '发布图文' : '发布文章'}
+          </span>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
             {draft.title || '未命名作品'}
           </h1>
@@ -488,8 +522,9 @@ export default function PublishFlowPage() {
                 <div>
                   <CardTitle>选择发布账号</CardTitle>
                   <CardDescription className="mt-1.5">
-                    选择要发布文章的平台账号 {selectedAccountIds.size > 0 && (
-                      <span className="text-foreground font-medium">· 已选 {selectedAccountIds.size} 个</span>
+                    不同类型草稿仅支持发布到支持该类型的平台上
+                    {selectedAccountIds.size > 0 && (
+                      <span className="text-foreground font-medium"> · 已选 {selectedAccountIds.size} 个</span>
                     )}
                   </CardDescription>
                 </div>
@@ -688,13 +723,51 @@ export default function PublishFlowPage() {
         )}
 
         {currentStep === 3 && publishing && (
-          <CardContent className="py-16">
-            <div className="flex flex-col items-center justify-center">
-              <div className="flex size-14 items-center justify-center rounded-full bg-foreground text-background mb-4">
-                <Send className="size-7" />
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center justify-center py-8 space-y-6">
+              <div className="flex size-16 items-center justify-center rounded-full bg-foreground text-background">
+                <Loader2 className="size-8 animate-spin" />
               </div>
-              <p className="text-foreground font-medium">正在执行发布任务...</p>
-              <p className="text-sm text-muted-foreground mt-1">请稍候</p>
+              <div className="text-center space-y-1">
+                <p className="text-foreground font-medium">正在执行发布任务...</p>
+                <p className="text-sm text-muted-foreground">正在将内容发布到各平台，请稍候</p>
+              </div>
+              <Skeleton className="h-1.5 w-full max-w-md rounded-full" />
+              <div className="w-full space-y-3 max-w-md">
+                {selectedAccounts.map((acc) => {
+                  const info = PLATFORM_INFO[acc.platform] || { name: acc.platform, icon: User }
+                  const Icon = info.icon
+                  const configId = accountConfigMap[acc.id]
+                  const configName = configId
+                    ? configs.find((c) => c.id === configId)?.configName || ''
+                    : '-'
+                  return (
+                    <div
+                      key={acc.id}
+                      className="flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/20"
+                    >
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+                        <Loader2 className="size-5 animate-spin" />
+                      </div>
+                      <div className={cn(
+                        'flex size-10 shrink-0 items-center justify-center rounded-lg',
+                        info.name === '微信公众号' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
+                      )}>
+                        <Icon className="size-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground truncate">
+                          {acc.platformUsername || acc.accountName || acc.appId || '未知账号'}
+                        </div>
+                        <div className="text-sm text-muted-foreground truncate">
+                          {info.name} · {configName}
+                        </div>
+                      </div>
+                      <span className="text-sm text-muted-foreground shrink-0">发布中...</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </CardContent>
         )}
@@ -703,7 +776,9 @@ export default function PublishFlowPage() {
           <CardContent className="pt-6">
             <CardHeader className="px-0 pt-0">
               <CardTitle>发布完成</CardTitle>
-              <CardDescription className="mt-1.5">查看各平台发布结果</CardDescription>
+              <CardDescription className="mt-1.5">
+                请在发布记录中查看详细发布状态和文章链接
+              </CardDescription>
             </CardHeader>
             <div className="space-y-3 mt-4">
               {selectedAccounts.map((acc) => {
@@ -756,17 +831,24 @@ export default function PublishFlowPage() {
 
       {/* 底部按钮 - 保持较低层级，确保下拉框在上方显示 */}
       <div className="relative z-0 flex justify-between">
-        {currentStep > 1 && currentStep < 4 && !publishing ? (
+        {currentStep === 4 ? (
+          <Button
+            variant="default"
+            onClick={() => router.push('/publish/history')}
+            className="bg-black text-white hover:bg-gray-800"
+          >
+            <HistoryIcon className="size-4 mr-2" />
+            前往发布记录
+          </Button>
+        ) : currentStep > 1 && !publishing ? (
           <Button variant="outline" onClick={handlePrevStep} className="flex items-center gap-2">
             <ArrowLeft className="size-4" />
             返回上一步
           </Button>
         ) : (
-          <Button variant="outline" onClick={handleBack}>
-            {currentStep === 4 ? '关闭' : '取消'}
-          </Button>
+          <Button variant="outline" onClick={handleBack}>取消</Button>
         )}
-        {currentStep < 4 ? (
+        {currentStep < 4 && (
           <Button
             variant="default"
             onClick={handleNext}
@@ -795,8 +877,6 @@ export default function PublishFlowPage() {
               '下一步'
             )}
           </Button>
-        ) : (
-          <Button onClick={handleBack}>返回作品列表</Button>
         )}
       </div>
     </div>

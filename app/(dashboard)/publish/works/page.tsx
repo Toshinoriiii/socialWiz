@@ -168,15 +168,15 @@ export default function WorksManagementPage() {
   return (
     <div className="space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold text-black mb-2">作品管理</h1>
-        <p className="text-gray-600">管理您的所有作品和草稿</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-black mb-2">草稿管理</h1>
+        <p className="text-gray-600">管理您的草稿，发布后将从本列表移除</p>
       </div>
 
       <Card className="border border-gray-300 bg-white">
         <CardHeader>
-          <CardTitle className="text-black">我的作品</CardTitle>
+          <CardTitle className="text-black">我的草稿</CardTitle>
           <CardDescription className="text-gray-600">
-            查看和管理您的所有作品，包括草稿和已发布的内容
+            查看和管理草稿，发布完成后将移至发布记录
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -188,8 +188,8 @@ export default function WorksManagementPage() {
           ) : drafts.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="size-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-600 mb-2">暂无作品</p>
-              <p className="text-sm text-gray-500">创建您的第一篇作品吧</p>
+              <p className="text-gray-600 mb-2">暂无草稿</p>
+              <p className="text-sm text-gray-500">创建您的第一篇草稿吧</p>
             </div>
           ) : (
             <div className="space-y-4">

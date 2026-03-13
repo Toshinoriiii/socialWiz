@@ -75,7 +75,7 @@ const quickCreateActions = [
   {
     id: 'create-article',
     label: '创建文章',
-    description: '快速创建新的文章作品,在作品管理进行发布',
+    description: '快速创建新的文章作品,在草稿管理进行发布',
     icon: <FileText className="size-5" />,
     href: '/publish/create-article',
     color: 'green' as const
@@ -83,7 +83,7 @@ const quickCreateActions = [
   {
     id: 'create-image',
     label: '创建图文',
-    description: '快速创建新的图文作品,在作品管理进行发布',
+    description: '快速创建新的图文作品,在草稿管理进行发布',
     icon: <ImageIcon className="size-5" />,
     href: '/publish/create-image',
     color: 'blue' as const

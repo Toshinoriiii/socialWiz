@@ -5,6 +5,7 @@
 
 import { prisma } from '@/lib/db/prisma'
 import { Platform } from '@/types/platform.types'
+import { markdownToHtml, toPlainText } from '@/lib/utils/markdown-to-html'
 import { WechatAdapter } from '@/lib/platforms/wechat/wechat-adapter'
 import { WechatTokenService } from '@/lib/services/wechat-token.service'
 import { WechatConfigService } from '@/lib/services/wechat-config.service'
@@ -106,9 +107,10 @@ export class PublishService {
       redirectUri: '',
     })
 
-    const digest = content.slice(0, 120).trim()
+    const htmlContent = markdownToHtml(content.trim())
+    const digest = toPlainText(htmlContent, 120)
     const result = await adapter.publish(accessToken, {
-      text: content.trim(),
+      text: htmlContent,
       title: title.trim(),
       author: author.trim(),
       digest,

@@ -227,45 +227,46 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   // 下载图片并转换为 File 对象
   const downloadImageAsFile = async (imageUrl: string, index: number): Promise<File | null> => {
     try {
-      // 处理图片URL：如果是代理URL，提取原始URL；否则直接使用
-      let url = imageUrl;
+      // 确定实际请求的 URL：优先通过同源代理拉取，避免 CORS 导致 fetch 失败
+      // img 标签可正常显示跨域图片，但 fetch 会受 CORS 限制
+      let fetchUrl: string;
       if (imageUrl.startsWith('/api/image-proxy')) {
-        // 从代理URL中提取原始URL
-        try {
-          const urlObj = new URL(imageUrl, 'http://dummy');
-          const originalUrl = urlObj.searchParams.get('url');
-          if (originalUrl) {
-            url = decodeURIComponent(originalUrl);
-            console.log(`[downloadImageAsFile] 从代理URL提取原始URL: ${url}`);
-          } else {
-            // 如果无法提取，使用代理URL
-            url = `${window.location.origin}${imageUrl}`;
-          }
-        } catch (e) {
-          // 如果解析失败，使用代理URL
-          url = `${window.location.origin}${imageUrl}`;
-        }
-      } else if (!imageUrl.startsWith('http')) {
-        // 如果是相对路径，转换为完整URL
-        url = imageUrl.startsWith('/') ? `${window.location.origin}${imageUrl}` : `${window.location.origin}/${imageUrl}`;
+        fetchUrl = `${window.location.origin}${imageUrl}`;
+        console.log(`[downloadImageAsFile] 通过代理下载: ${fetchUrl}`);
+      } else if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        // 外部 URL 通过我们的代理拉取，绕过 CORS
+        fetchUrl = `${window.location.origin}/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+        console.log(`[downloadImageAsFile] 外部 URL 经代理下载: ${imageUrl}`);
+      } else if (imageUrl.startsWith('/')) {
+        fetchUrl = `${window.location.origin}${imageUrl}`;
+      } else {
+        fetchUrl = `${window.location.origin}/${imageUrl}`;
       }
 
-      console.log(`[downloadImageAsFile] 开始下载图片 ${index + 1}: ${url} (原始输入: ${imageUrl})`);
+      console.log(`[downloadImageAsFile] 开始下载图片 ${index + 1}: (原始: ${imageUrl})`);
 
       // 获取图片（添加错误处理和超时）
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超时
       
-      const response = await fetch(url, {
+      const response = await fetch(fetchUrl, {
         signal: controller.signal,
-        mode: 'cors', // 允许跨域
-        credentials: 'omit', // 不发送cookie
+        mode: 'cors',
+        credentials: 'omit',
       });
       
       clearTimeout(timeoutId);
       
       if (!response.ok) {
         console.error(`[downloadImageAsFile] 下载图片失败: ${imageUrl}`, response.status, response.statusText);
+        return null;
+      }
+
+      // 代理可能返回 JSON 错误
+      const resContentType = response.headers.get('content-type') || '';
+      if (resContentType.includes('application/json')) {
+        const errData = await response.json().catch(() => ({}));
+        console.error(`[downloadImageAsFile] 代理返回错误:`, errData);
         return null;
       }
 
@@ -424,15 +425,20 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
       // 确定 contentType
       const contentType = workflowType === 'social-media' ? 'image-text' : 'article';
       
-      // 文章编辑器需要完整 Markdown（含 ![image](url)），将图片 URL 替换为上传后的 URL
-      let finalContent = data.content;
-      if (contentType === 'article' && data.rawContent && uploadedImageUrls.length > 0) {
-        let imageIndex = 0;
-        finalContent = data.rawContent.replace(/!\[([^\]]*)\]\(([^\)]*)\)/g, (_match, alt, _url) => {
-          const newUrl = uploadedImageUrls[imageIndex] ?? _url;
-          imageIndex++;
-          return `![${alt}](${newUrl})`;
-        });
+      // 文章编辑器需要完整 Markdown（保留标题、加粗、列表等格式），仅替换图片 URL 为上传后的地址
+      let finalContent: string;
+      if (contentType === 'article' && data.rawContent) {
+        finalContent = data.rawContent;
+        if (uploadedImageUrls.length > 0) {
+          let imageIndex = 0;
+          finalContent = finalContent.replace(/!\[([^\]]*)\]\(([^\)]*)\)/g, (_match, alt, _url) => {
+            const newUrl = uploadedImageUrls[imageIndex] ?? _url;
+            imageIndex++;
+            return `![${alt}](${newUrl})`;
+          });
+        }
+      } else {
+        finalContent = data.content;
       }
       
       // 将数据保存到 sessionStorage，供编辑器使用

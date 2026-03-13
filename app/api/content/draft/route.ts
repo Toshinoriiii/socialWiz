@@ -159,11 +159,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 获取当前用户的作品（草稿 + 已发布）
+    // 获取当前用户的草稿（不含已发布，发布完成后从草稿管理移除）
     const drafts = await prisma.content.findMany({
       where: {
         userId: user.id,
-        status: { in: ['DRAFT', 'PUBLISHED'] }
+        status: { in: ['DRAFT', 'SCHEDULED', 'FAILED'] }
       },
       select: {
         id: true,

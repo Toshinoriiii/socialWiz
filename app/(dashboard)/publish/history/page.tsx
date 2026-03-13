@@ -153,7 +153,7 @@ export default function PublishHistoryPage() {
         </div>
         <Button variant="outline" onClick={() => router.push('/publish/works')}>
           <ArrowLeft className="size-4 mr-2" />
-          返回作品管理
+          返回草稿管理
         </Button>
       </div>
 
@@ -176,7 +176,7 @@ export default function PublishHistoryPage() {
               <p className="text-gray-600 mb-2">暂无发布记录</p>
               <p className="text-sm text-gray-500 mb-4">发布作品后，记录将在此显示</p>
               <Button variant="outline" onClick={() => router.push('/publish/works')}>
-                前往作品管理
+                前往草稿管理
               </Button>
             </div>
           ) : (

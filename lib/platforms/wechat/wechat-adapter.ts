@@ -388,7 +388,13 @@ export class WechatAdapter implements PlatformAdapter {
           // 任务提交成功，轮询发布状态以获取文章链接（微信发布为异步）
           const publishId = publishData.publish_id
           console.log('[WechatAdapter] Publish task submitted, publish_id:', publishId)
-          const articleUrl = await this.pollPublishStatus(accessToken, publishId)
+          const { articleUrl, articleId } = await this.pollPublishStatus(accessToken, publishId)
+          // 发布成功后自动群发推送给粉丝
+          if (articleId) {
+            this.massSendToFollowers(accessToken, articleId).catch((err) => {
+              console.warn('[WechatAdapter] 群发推送失败（文章已发布）:', err)
+            })
+          }
           return {
             success: true,
             platformPostId: publishId,
@@ -415,7 +421,7 @@ export class WechatAdapter implements PlatformAdapter {
   }
 
   /**
-   * 轮询发布状态，获取文章永久链接
+   * 轮询发布状态，获取文章永久链接和 article_id
    * 微信 freepublish/submit 为异步，需通过 freepublish/get 查询最终结果
    */
   private async pollPublishStatus(
@@ -423,7 +429,7 @@ export class WechatAdapter implements PlatformAdapter {
     publishId: string,
     maxAttempts = 10,
     intervalMs = 2000
-  ): Promise<string | undefined> {
+  ): Promise<{ articleUrl?: string; articleId?: string }> {
     const getUrl = `https://api.weixin.qq.com/cgi-bin/freepublish/get?access_token=${accessToken}`
     for (let i = 0; i < maxAttempts; i++) {
       await this.sleep(intervalMs)
@@ -436,6 +442,7 @@ export class WechatAdapter implements PlatformAdapter {
         })
         const data = (await res.json()) as {
           publish_status?: number
+          article_id?: string
           article_detail?: { item?: Array<{ article_url?: string }> }
           errcode?: number
         }
@@ -446,19 +453,109 @@ export class WechatAdapter implements PlatformAdapter {
         const status = data.publish_status ?? -1
         if (status === 0) {
           const url = data.article_detail?.item?.[0]?.article_url
+          const articleId = data.article_id
           if (url) console.log('[WechatAdapter] Article URL:', url)
-          return url
+          if (articleId) console.log('[WechatAdapter] Article ID:', articleId)
+          return { articleUrl: url, articleId }
         }
         if (status >= 2 && status <= 6) {
           console.warn('[WechatAdapter] Publish failed, status:', status)
-          return undefined
+          return {}
         }
         console.log(`[WechatAdapter] Publish status: ${status} (1=发布中), retry ${i + 1}/${maxAttempts}`)
       } catch (e) {
         console.warn('[WechatAdapter] Poll exception:', e)
       }
     }
-    return undefined
+    return {}
+  }
+
+  /**
+   * 发布成功后群发推送给粉丝
+   * 流程：getarticle 获取已发布文章 -> uploadnews 转为群发 media_id -> sendall 群发
+   */
+  private async massSendToFollowers(accessToken: string, articleId: string): Promise<void> {
+    try {
+      // 1. 获取已发布文章详情
+      const getArticleUrl = `https://api.weixin.qq.com/cgi-bin/freepublish/getarticle?access_token=${accessToken}`
+      const getRes = await fetch(getArticleUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ article_id: articleId }),
+        signal: AbortSignal.timeout(10000),
+      })
+      const getData = (await getRes.json()) as {
+        errcode?: number
+        errmsg?: string
+        news_item?: Array<{
+          title: string
+          author?: string
+          digest?: string
+          content: string
+          content_source_url?: string
+          thumb_media_id: string
+          need_open_comment?: number
+          only_fans_can_comment?: number
+        }>
+      }
+      if (getData.errcode && getData.errcode !== 0) {
+        throw new Error(`getarticle 失败: ${getData.errmsg} (${getData.errcode})`)
+      }
+      const article = getData.news_item?.[0]
+      if (!article || !article.thumb_media_id) {
+        throw new Error('获取文章内容失败')
+      }
+      // 2. 上传图文素材（群发需要用 uploadnews 的 media_id）
+      const uploadNewsUrl = `https://api.weixin.qq.com/cgi-bin/media/uploadnews?access_token=${accessToken}`
+      const uploadBody = {
+        articles: [{
+          title: article.title,
+          author: article.author || '',
+          digest: article.digest || '',
+          content: article.content,
+          content_source_url: article.content_source_url || '',
+          thumb_media_id: article.thumb_media_id,
+          need_open_comment: article.need_open_comment ?? 0,
+          only_fans_can_comment: article.only_fans_can_comment ?? 0,
+        }],
+      }
+      const uploadRes = await fetch(uploadNewsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(uploadBody),
+        signal: AbortSignal.timeout(15000),
+      })
+      const uploadData = (await uploadRes.json()) as { errcode?: number; errmsg?: string; media_id?: string }
+      if (uploadData.errcode && uploadData.errcode !== 0) {
+        throw new Error(`uploadnews 失败: ${uploadData.errmsg} (${uploadData.errcode})`)
+      }
+      const massMediaId = uploadData.media_id
+      if (!massMediaId) {
+        throw new Error('uploadnews 未返回 media_id')
+      }
+      // 3. 群发推送给全部粉丝
+      const sendAllUrl = `https://api.weixin.qq.com/cgi-bin/message/mass/sendall?access_token=${accessToken}`
+      const sendBody = {
+        filter: { is_to_all: true },
+        mpnews: { media_id: massMediaId },
+        msgtype: 'mpnews',
+        send_ignore_reprint: 0,
+      }
+      const sendRes = await fetch(sendAllUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sendBody),
+        signal: AbortSignal.timeout(10000),
+      })
+      const sendData = (await sendRes.json()) as { errcode?: number; errmsg?: string; msg_id?: number }
+      if (sendData.errcode && sendData.errcode !== 0) {
+        throw new Error(`群发失败: ${sendData.errmsg} (${sendData.errcode})`)
+      }
+      console.log('[WechatAdapter] 群发推送成功, msg_id:', sendData.msg_id)
+    } catch (error) {
+      console.error('[WechatAdapter] massSendToFollowers 错误:', error)
+      throw error
+    }
   }
 
   /**
