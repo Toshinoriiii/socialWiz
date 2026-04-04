@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 /**
  * 作品发布流程页面
@@ -34,10 +34,10 @@ import {
   User,
   RefreshCw,
   Search,
-  MessageCircle,
-  MessageSquare,
   History as HistoryIcon,
 } from 'lucide-react'
+import { PlatformBrandLogo } from '@/components/dashboard/PlatformBrandLogo'
+import { Platform } from '@/types/platform.types'
 
 interface PlatformAccount {
   id: string
@@ -76,11 +76,60 @@ const STEPS = [
   { id: 4, key: 'complete', label: '发布完成', desc: '发布任务已完成', icon: CheckCircle2 },
 ]
 
-const PLATFORM_INFO: Record<string, { name: string; icon: React.ElementType }> = {
-  WECHAT: { name: '微信公众号', icon: MessageCircle },
-  WEIBO: { name: '微博', icon: MessageSquare },
-  DOUYIN: { name: '抖音', icon: MessageSquare },
-  XIAOHONGSHU: { name: '小红书', icon: MessageSquare },
+const PLATFORM_INFO: Record<string, { name: string }> = {
+  WECHAT: { name: '微信公众号' },
+  WEIBO: { name: '微博' },
+  DOUYIN: { name: '抖音' },
+  XIAOHONGSHU: { name: '小红书' },
+}
+
+function isKnownPlatform (p: string): p is Platform {
+  return (Object.values(Platform) as string[]).includes(p)
+}
+
+/** 与平台配置弹窗相同的品牌 SVG + 中性衬底 */
+function AccountPlatformLogo ({ platformKey }: { platformKey: string }) {
+  if (isKnownPlatform(platformKey)) {
+    return (
+      <PlatformBrandLogo
+        platform={platformKey}
+        size={28}
+        tileClassName="shrink-0 bg-neutral-100 dark:bg-neutral-800"
+      />
+    )
+  }
+  return (
+    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted">
+      <User className="size-5 text-muted-foreground" />
+    </div>
+  )
+}
+
+async function pollPublishJob(
+  token: string,
+  jobId: string,
+  options?: { maxAttempts?: number; intervalMs?: number }
+): Promise<{ ok: boolean; status: string; errorMessage?: string | null }> {
+  const maxAttempts = options?.maxAttempts ?? 30
+  const intervalMs = options?.intervalMs ?? 1000
+  for (let i = 0; i < maxAttempts; i++) {
+    const res = await fetch(`/api/platforms/publish/jobs/${jobId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      return { ok: false, status: 'FAILED', errorMessage: data.error || '查询任务失败' }
+    }
+    if (data.status === 'SUCCESS' || data.status === 'FAILED') {
+      return {
+        ok: data.status === 'SUCCESS',
+        status: data.status,
+        errorMessage: data.errorMessage,
+      }
+    }
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+  return { ok: false, status: 'FAILED', errorMessage: '等待任务结果超时' }
 }
 
 /** 各平台支持的内容类型：微信仅支持文章，微博支持文章和图文 */
@@ -358,11 +407,22 @@ export default function PublishFlowPage() {
           body: formData,
         })
         const data = await res.json().catch(() => ({}))
-        results.push({
-          accountId: acc.id,
-          success: res.ok && data.success,
-          message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
-        })
+        if (res.ok && data.success && data.requiresJobPolling && data.jobId && token) {
+          const polled = await pollPublishJob(token, data.jobId)
+          results.push({
+            accountId: acc.id,
+            success: polled.ok,
+            message: polled.ok
+              ? (data.message || '微博已在后台尝试发博，请到微博查看是否成功')
+              : (polled.errorMessage || data.details || data.error || '发布失败'),
+          })
+        } else {
+          results.push({
+            accountId: acc.id,
+            success: res.ok && data.success,
+            message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+          })
+        }
       } else {
         results.push({ accountId: acc.id, success: false, message: '暂不支持该平台发布' })
       }
@@ -584,8 +644,7 @@ export default function PublishFlowPage() {
                   </div>
                 ) : (
                   filteredAccounts.map((acc) => {
-                    const info = PLATFORM_INFO[acc.platform] || { name: acc.platform, icon: User }
-                    const Icon = info.icon
+                    const info = PLATFORM_INFO[acc.platform] || { name: acc.platform }
                     const selected = selectedAccountIds.has(acc.id)
                     const disabled = !acc.isConnected
 
@@ -606,12 +665,7 @@ export default function PublishFlowPage() {
                         )}>
                           {selected && <Check className="size-3.5 text-foreground stroke-[2.5]" />}
                         </div>
-                        <div className={cn(
-                          'flex size-10 shrink-0 items-center justify-center rounded-lg',
-                          info.name === '微信公众号' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
-                        )}>
-                          <Icon className="size-5" />
-                        </div>
+                        <AccountPlatformLogo platformKey={acc.platform} />
                         <div className="flex-1 min-w-0">
                           <div className="font-semibold truncate text-foreground">{info.name}</div>
                           <div className="text-sm text-muted-foreground truncate">{acc.platformUsername}</div>
@@ -649,19 +703,13 @@ export default function PublishFlowPage() {
 
                 return Object.entries(accountsByPlatform).map(([platform, platformAccounts]) => {
                   const platformConfigs = configs.filter(c => c.platform === platform)
-                  const info = PLATFORM_INFO[platform] || { name: platform, icon: User }
-                  const Icon = info.icon
+                  const info = PLATFORM_INFO[platform] || { name: platform }
 
                   return (
                     <div key={platform} className="rounded-lg border border-border overflow-visible">
                       {/* 平台标题 */}
                       <div className="flex items-center gap-2 px-4 py-3 bg-muted/30 border-b border-border">
-                        <div className={cn(
-                          'flex size-9 items-center justify-center rounded-lg shrink-0',
-                          info.name === '微信公众号' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
-                        )}>
-                          <Icon className="size-5" />
-                        </div>
+                        <AccountPlatformLogo platformKey={platform} />
                         <span className="font-semibold text-foreground">{info.name}</span>
                         <span className="text-xs text-muted-foreground">
                           {platformConfigs.length > 0
@@ -735,8 +783,7 @@ export default function PublishFlowPage() {
               <Skeleton className="h-1.5 w-full max-w-md rounded-full" />
               <div className="w-full space-y-3 max-w-md">
                 {selectedAccounts.map((acc) => {
-                  const info = PLATFORM_INFO[acc.platform] || { name: acc.platform, icon: User }
-                  const Icon = info.icon
+                  const info = PLATFORM_INFO[acc.platform] || { name: acc.platform }
                   const configId = accountConfigMap[acc.id]
                   const configName = configId
                     ? configs.find((c) => c.id === configId)?.configName || ''
@@ -749,12 +796,7 @@ export default function PublishFlowPage() {
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
                         <Loader2 className="size-5 animate-spin" />
                       </div>
-                      <div className={cn(
-                        'flex size-10 shrink-0 items-center justify-center rounded-lg',
-                        info.name === '微信公众号' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
-                      )}>
-                        <Icon className="size-5" />
-                      </div>
+                      <AccountPlatformLogo platformKey={acc.platform} />
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-foreground truncate">
                           {acc.platformUsername || acc.accountName || acc.appId || '未知账号'}
@@ -783,8 +825,7 @@ export default function PublishFlowPage() {
             <div className="space-y-3 mt-4">
               {selectedAccounts.map((acc) => {
                 const result = publishResults.find(r => r.accountId === acc.id)
-                const info = PLATFORM_INFO[acc.platform] || { name: acc.platform, icon: User }
-                const Icon = info.icon
+                const info = PLATFORM_INFO[acc.platform] || { name: acc.platform }
                 const success = result?.success ?? false
 
                 return (
@@ -795,31 +836,33 @@ export default function PublishFlowPage() {
                       success ? 'border-border bg-muted/20' : 'border-destructive/50 bg-destructive/5'
                     )}
                   >
-                    <div className={cn(
-                      'flex size-10 shrink-0 items-center justify-center rounded-full',
-                      success ? 'bg-foreground text-background' : 'bg-destructive text-destructive-foreground'
-                    )}>
+                    <div
+                      className={cn(
+                        'flex size-8 shrink-0 items-center justify-center rounded-full border',
+                        success
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : 'border-destructive/40 bg-destructive/10 text-destructive'
+                      )}
+                      aria-hidden
+                    >
                       {success ? (
-                        <Check className="size-5" />
+                        <Check className="size-3.5 stroke-[2.5]" />
                       ) : (
-                        <span className="text-sm font-bold">!</span>
+                        <span className="text-[11px] font-bold leading-none">!</span>
                       )}
                     </div>
-                    <div className={cn(
-                      'flex size-10 shrink-0 items-center justify-center rounded-lg',
-                      info.name === '微信公众号' ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'
-                    )}>
-                      <Icon className="size-5" />
-                    </div>
+                    <AccountPlatformLogo platformKey={acc.platform} />
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-foreground">{acc.platformUsername}</div>
                       <div className="text-sm text-muted-foreground">{info.name}</div>
                     </div>
-                    <span className={cn(
-                      'text-sm shrink-0',
-                      success ? 'text-foreground' : 'text-destructive'
-                    )}>
-                      {result?.message || (success ? '发布成功' : '发布失败')}
+                    <span
+                      className={cn(
+                        'text-sm shrink-0',
+                        success ? 'text-muted-foreground' : 'text-destructive'
+                      )}
+                    >
+                      {success ? '已发布成功' : result?.message || '发布失败'}
                     </span>
                   </div>
                 )

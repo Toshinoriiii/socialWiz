@@ -2,104 +2,196 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { AuthService } from '@/lib/services/auth.service'
 import { WeiboAdapter } from '@/lib/platforms/weibo/weibo-adapter'
-import { getPlatformConfig } from '@/config/platform.config'
-import { Platform } from '@/types/platform.types'
 import type { PublishContent } from '@/lib/platforms/base/types'
+import { decrypt } from '@/lib/utils/encryption'
+import { decryptWeiboToken } from '@/lib/utils/weibo-token-crypto'
+import { isTokenExpired } from '@/lib/platforms/weibo/weibo-utils'
+import { isWeiboBrowserSessionAccount } from '@/lib/platforms/connection-kind'
+import { NonOfficialPublishService } from '@/lib/services/non-official-publish.service'
+import { absoluteUrlsForContent } from '@/lib/utils/content-image-urls'
+
+export const runtime = 'nodejs'
+export const maxDuration = 120
 
 /**
  * POST /api/platforms/weibo/[platformAccountId]/publish
- * 发布内容到微博
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { platformAccountId: string } }
+  context: { params: Promise<{ platformAccountId: string }> }
 ) {
   try {
-    // 验证用户身份
     const authHeader = request.headers.get('authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: '未授权，请先登录' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: '未授权，请先登录' }, { status: 401 })
     }
 
     const token = authHeader.substring(7)
     const user = await AuthService.verifyToken(token)
 
-    const { platformAccountId } = params
+    const { platformAccountId } = await context.params
 
-    // 解析请求体
     const body = await request.json()
-    const { contentId, text } = body
-
-    if (!text && !contentId) {
-      return NextResponse.json(
-        { error: '内容或内容ID不能为空' },
-        { status: 400 }
-      )
+    const {
+      contentId,
+      text,
+      imageUrls: bodyImageUrls,
+      title: bodyTitle,
+      contentType: bodyContentType
+    } = body as {
+      contentId?: string
+      text?: string
+      imageUrls?: string[]
+      title?: string
+      contentType?: string
     }
 
-    // 查找平台账号
+    if (!text && !contentId) {
+      return NextResponse.json({ error: '内容或内容ID不能为空' }, { status: 400 })
+    }
+
     const platformAccount = await prisma.platformAccount.findUnique({
-      where: { id: platformAccountId }
+      where: { id: platformAccountId },
+      include: { weiboAppConfig: true }
     })
 
     if (!platformAccount) {
-      return NextResponse.json(
-        { error: '平台账号不存在' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: '平台账号不存在' }, { status: 404 })
     }
 
-    // 验证账号属于当前用户
     if (platformAccount.userId !== user.id) {
-      return NextResponse.json(
-        { error: '无权访问此账号' },
-        { status: 403 }
-      )
+      return NextResponse.json({ error: '无权访问此账号' }, { status: 403 })
     }
 
-    // 验证账号已连接
     if (!platformAccount.isConnected) {
+      return NextResponse.json({ error: '账号未连接，请先连接账号' }, { status: 400 })
+    }
+
+    if (isWeiboBrowserSessionAccount(platformAccount)) {
+      let publishText = text as string | undefined
+      let fromContentTitle: string | undefined
+      let fromContentType: string | undefined
+      let fromContentImages: string[] | undefined
+      if (contentId) {
+        const content = await prisma.content.findUnique({
+          where: { id: contentId }
+        })
+        if (!content) {
+          return NextResponse.json({ error: '内容不存在' }, { status: 404 })
+        }
+        if (!publishText) {
+          publishText = content.content || content.title || ''
+        }
+        fromContentTitle = content.title
+        fromContentType = content.contentType ?? undefined
+        fromContentImages = absoluteUrlsForContent(
+          process.env.NEXT_PUBLIC_BASE_URL,
+          content.coverImage,
+          content.images
+        )
+      }
+      const bodyText = (publishText ?? '').trim()
+      if (!bodyText) {
+        return NextResponse.json({ error: '内容不能为空' }, { status: 400 })
+      }
+      const imageUrls =
+        Array.isArray(bodyImageUrls) && bodyImageUrls.length > 0
+          ? bodyImageUrls.filter((u: string) => typeof u === 'string').slice(0, 9)
+          : fromContentImages
+      const mergedTitle =
+        typeof bodyTitle === 'string' && bodyTitle.trim()
+          ? bodyTitle.trim()
+          : fromContentTitle
+      const mergedContentType =
+        typeof bodyContentType === 'string' && bodyContentType.trim()
+          ? bodyContentType.trim()
+          : fromContentType
+      const r = await NonOfficialPublishService.publishWeiboBrowserSession({
+        userId: user.id,
+        platformAccountId,
+        text: bodyText,
+        contentId: contentId as string | undefined,
+        source: 'weibo_account_publish',
+        imageUrls,
+        title: mergedTitle,
+        contentType: mergedContentType
+      })
+      if (!r.success) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: r.error,
+            hint: r.message,
+            jobId: r.jobId,
+            requiresJobPolling: !!r.jobId
+          },
+          { status: 400 }
+        )
+      }
+      return NextResponse.json({
+        success: true,
+        jobId: r.jobId,
+        requiresJobPolling: true,
+        message: r.message,
+        platformPostId: r.platformPostId,
+        publishedUrl: r.publishedUrl,
+        postInsights: r.postInsights
+      })
+    }
+
+    if (isTokenExpired(platformAccount.tokenExpiry ?? undefined)) {
       return NextResponse.json(
-        { error: '账号未连接，请先连接账号' },
-        { status: 400 }
+        { success: false, error: '微博授权已过期，请在账号管理重新绑定微博' },
+        { status: 401 }
       )
     }
 
-    // 如果提供了 contentId，从数据库获取内容
-    let publishText = text
-    if (contentId && !text) {
+    let publishText = text as string | undefined
+    if (contentId && !publishText) {
       const content = await prisma.content.findUnique({
         where: { id: contentId }
       })
 
       if (!content) {
-        return NextResponse.json(
-          { error: '内容不存在' },
-          { status: 404 }
-        )
+        return NextResponse.json({ error: '内容不存在' }, { status: 404 })
       }
 
       publishText = content.content || content.title || ''
     }
 
-    // 创建适配器
-    const weiboConfig = getPlatformConfig(Platform.WEIBO)
-    const adapter = new WeiboAdapter({
-      appKey: process.env.WEIBO_APP_KEY || '',
-      appSecret: process.env.WEIBO_APP_SECRET || '',
-      redirectUri: process.env.WEIBO_REDIRECT_URI || ''
-    })
-
-    // 准备发布内容
-    const publishContent: PublishContent = {
-      text: publishText
+    let appKey = process.env.WEIBO_APP_KEY || ''
+    let appSecret = process.env.WEIBO_APP_SECRET || ''
+    let redirectUri = process.env.WEIBO_REDIRECT_URI || ''
+    if (platformAccount.weiboAppConfig) {
+      appKey = platformAccount.weiboAppConfig.appId
+      try {
+        appSecret = decrypt(platformAccount.weiboAppConfig.appSecret)
+      } catch {
+        return NextResponse.json(
+          { success: false, error: '微博应用配置解密失败' },
+          { status: 500 }
+        )
+      }
+      redirectUri = platformAccount.weiboAppConfig.callbackUrl
+    } else if (!appKey || !appSecret) {
+      return NextResponse.json(
+        { success: false, error: '未配置微博应用密钥，请设置环境变量或添加应用凭证' },
+        { status: 500 }
+      )
     }
 
-    // 发布内容
-    const result = await adapter.publish(platformAccount.accessToken, publishContent)
+    const adapter = new WeiboAdapter({
+      appKey,
+      appSecret,
+      redirectUri
+    })
+
+    const publishContent: PublishContent = {
+      text: publishText || ''
+    }
+
+    const accessToken = decryptWeiboToken(platformAccount.accessToken)
+    const result = await adapter.publish(accessToken, publishContent)
 
     if (!result.success) {
       return NextResponse.json(
@@ -112,28 +204,33 @@ export async function POST(
       )
     }
 
-    // 如果提供了 contentId，更新 ContentPlatform 记录
     if (contentId) {
-      await prisma.contentPlatform.upsert({
+      const existing = await prisma.contentPlatform.findFirst({
         where: {
-          contentId_platformAccountId: {
-            contentId,
-            platformAccountId
-          }
-        },
-        create: {
           contentId,
-          platformAccountId,
-          platformContentId: result.platformPostId,
-          publishedUrl: result.publishedUrl,
-          publishStatus: 'SUCCESS'
-        },
-        update: {
-          platformContentId: result.platformPostId,
-          publishedUrl: result.publishedUrl,
-          publishStatus: 'SUCCESS'
+          platformAccountId
         }
       })
+      if (existing) {
+        await prisma.contentPlatform.update({
+          where: { id: existing.id },
+          data: {
+            platformContentId: result.platformPostId,
+            publishedUrl: result.publishedUrl,
+            publishStatus: 'SUCCESS'
+          }
+        })
+      } else {
+        await prisma.contentPlatform.create({
+          data: {
+            contentId,
+            platformAccountId,
+            platformContentId: result.platformPostId,
+            publishedUrl: result.publishedUrl,
+            publishStatus: 'SUCCESS'
+          }
+        })
+      }
     }
 
     return NextResponse.json({

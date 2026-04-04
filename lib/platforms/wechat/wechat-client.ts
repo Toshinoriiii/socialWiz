@@ -165,3 +165,88 @@ export class WechatApiClient {
  * 导出单例实例
  */
 export const wechatApiClient = new WechatApiClient()
+
+/**
+ * 测试路由等场景使用的兼容客户端（封装素材上传、草稿与发布）
+ */
+export class WechatClient {
+  private readonly api = new WechatApiClient()
+
+  constructor(
+    private readonly cfg: { appId: string; appSecret: string; redirectUri: string }
+  ) {}
+
+  async getApiAccessToken(): Promise<{ access_token: string; expires_in: number }> {
+    const r = await this.api.getAccessToken(this.cfg.appId, this.cfg.appSecret)
+    return { access_token: r.access_token, expires_in: r.expires_in }
+  }
+
+  async uploadMaterial(accessToken: string, buffer: Buffer, filename: string): Promise<string> {
+    const form = new FormData()
+    form.append('media', new Blob([new Uint8Array(buffer)]), filename)
+    const url = `${WECHAT_API_BASE_URL}/cgi-bin/material/add_material?access_token=${encodeURIComponent(accessToken)}&type=thumb`
+    const res = await fetch(url, { method: 'POST', body: form })
+    const data = (await res.json()) as { errcode?: number; errmsg?: string; media_id?: string }
+    if (data.errcode && data.errcode !== WechatErrorCode.SUCCESS) {
+      throw new Error(data.errmsg || `微信错误 ${data.errcode}`)
+    }
+    if (!data.media_id) {
+      throw new Error('上传素材未返回 media_id')
+    }
+    return data.media_id
+  }
+
+  async createDraft(
+    accessToken: string,
+    articles: Array<{
+      title: string
+      content: string
+      thumb_media_id: string
+      author?: string
+      digest?: string
+    }>
+  ): Promise<{ media_id: string }> {
+    const request: WechatDraftAddRequest = {
+      articles: articles.map((a) => ({
+        title: a.title,
+        author: a.author ?? '',
+        digest: a.digest ?? '',
+        content: a.content,
+        content_source_url: '',
+        thumb_media_id: a.thumb_media_id,
+        need_open_comment: 0,
+        only_fans_can_comment: 0
+      }))
+    }
+    const r = await this.api.createDraft(accessToken, request)
+    if (!r.media_id) {
+      throw new Error('草稿创建未返回 media_id')
+    }
+    return { media_id: r.media_id }
+  }
+
+  async publishDraft(
+    accessToken: string,
+    mediaId: string
+  ): Promise<{ publish_id: string; msg_data_id?: string }> {
+    const url = `${WECHAT_API_BASE_URL}/cgi-bin/freepublish/submit?access_token=${encodeURIComponent(accessToken)}`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ media_id: mediaId })
+    })
+    const data = (await res.json()) as {
+      errcode?: number
+      errmsg?: string
+      publish_id?: string
+      msg_data_id?: string
+    }
+    if (data.errcode && data.errcode !== WechatErrorCode.SUCCESS) {
+      throw new Error(data.errmsg || `发布失败 ${data.errcode}`)
+    }
+    if (!data.publish_id) {
+      throw new Error('发布未返回 publish_id')
+    }
+    return { publish_id: data.publish_id, msg_data_id: data.msg_data_id }
+  }
+}

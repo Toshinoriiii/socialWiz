@@ -1,0 +1,76 @@
+openapi: 3.0.3
+info:
+  title: SocialWiz — PublishJob API
+  description: 非官方发布引擎任务查询（微博浏览器会话等）
+  version: "1.0.0"
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/platforms/publish/jobs/{jobId}:
+    get:
+      summary: 查询发布任务状态
+      operationId: getPublishJob
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishJob"
+        "401":
+          description: Unauthorized
+        "404":
+          description: 任务不存在或无权访问
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    PublishJob:
+      type: object
+      required:
+        - id
+        - userId
+        - platformAccountId
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        platformAccountId:
+          type: string
+        contentId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [QUEUED, RUNNING, SUCCESS, FAILED]
+        errorMessage:
+          type: string
+          nullable: true
+        platformPostId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time

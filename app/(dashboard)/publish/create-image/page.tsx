@@ -254,13 +254,7 @@ export default function CreateImagePage() {
 
       if (response.ok) {
         toast.success(draftId ? '草稿已更新' : '草稿已保存')
-        // 如果是新创建的草稿，更新URL以包含id，并移除 from=ai 参数
-        if (!draftId && data.draft?.id) {
-          router.replace(`/publish/create-image?id=${data.draft.id}`)
-        } else if (fromAi) {
-          // 如果是从 AI 生成跳转过来的，保存后移除 from=ai 参数
-          router.replace(`/publish/create-image?id=${draftId || data.draft?.id}`)
-        }
+        router.push('/publish/works')
       } else {
         toast.error(data.error || '保存失败')
       }

@@ -278,9 +278,8 @@ cloudflared tunnel run socialwiz-dev
 
 **A**: 
 1. 确保 ngrok 正在运行
-2. 访问测试页面: `http://localhost:3000/dashboard/test-weibo`
-3. 点击"连接微博账号"
-4. 完成授权后会自动回调
+2. 打开 **账号管理**（`/accounts`），选择微博 OAuth 账号并点击连接/绑定
+3. 完成授权后会自动回调
 
 ---
 

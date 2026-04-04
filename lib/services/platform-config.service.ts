@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 平台发布配置管理服务
  * Feature: 006-platform-publish-config
  * 
@@ -39,7 +39,7 @@ export class PlatformConfigService {
       ]
     })
 
-    return configs as PlatformPublishConfig[]
+    return configs as unknown as PlatformPublishConfig[]
   }
 
   /**
@@ -58,7 +58,7 @@ export class PlatformConfigService {
       }
     })
 
-    return config as PlatformPublishConfig | null
+    return config as unknown as PlatformPublishConfig | null
   }
 
   /**
@@ -103,7 +103,7 @@ export class PlatformConfigService {
         }
       })
 
-      return config as PlatformPublishConfig
+      return config as unknown as PlatformPublishConfig
     } catch (error) {
       console.error('PlatformConfigService.createConfig error:', error)
       if (error instanceof Error && error.message.includes('prisma')) {
@@ -167,7 +167,7 @@ export class PlatformConfigService {
       }
     })
 
-    return updatedConfig as PlatformPublishConfig
+    return updatedConfig as unknown as PlatformPublishConfig
   }
 
   /**
@@ -224,7 +224,7 @@ export class PlatformConfigService {
       data: { isDefault: true }
     })
 
-    return updatedConfig as PlatformPublishConfig
+    return updatedConfig as unknown as PlatformPublishConfig
   }
 
   /**

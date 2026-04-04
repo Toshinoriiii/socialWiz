@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 /**
  * 平台配置弹窗组件
@@ -10,7 +10,7 @@
 import React, { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { X, Plus, Settings, Trash2 } from 'lucide-react'
+import { ArrowLeft, Plus, Settings, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -18,12 +18,12 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Platform } from '@/types/platform.types'
-import { WechatConfigFields } from './platform-config-fields'
-import { usePlatformConfig } from '@/lib/hooks/use-platform-config'
+import { WechatConfigFields, WeiboConfigFields } from './platform-config-fields'
+import { PlatformBrandLogo } from '@/components/dashboard/PlatformBrandLogo'
+import { cn } from '@/lib/utils'
 import { CreateConfigInputSchema } from '@/lib/validators/platform-config.validator'
 import { useUserStore } from '@/store/user.store'
 import { toast } from 'sonner'
-import { z } from 'zod'
 
 interface PlatformConfigDialogProps {
   platform: Platform
@@ -33,7 +33,19 @@ interface PlatformConfigDialogProps {
   onConfigsChange?: () => void
 }
 
-type FormData = z.infer<typeof CreateConfigInputSchema>
+function defaultWeiboConfigData () {
+  return {
+    type: 'weibo' as const,
+    articleColumnName: '',
+    articleFollowersOnlyFullText: true,
+    articleVisibility: 'public' as const,
+    articleContentDeclaration: '0' as const,
+    articleWeiboStatusText: '',
+    imageTextLocation: '',
+    imageTextVisibility: 'public' as const,
+    imageTextContentDeclaration: '0' as const
+  }
+}
 
 export function PlatformConfigDialog({
   platform,
@@ -75,11 +87,14 @@ export function PlatformConfigDialog({
       platform,
       configName: '',
       description: '',
-      configData: {
-        type: platform === Platform.WECHAT ? 'wechat' : 'weibo',
-        author: '',
-        contentSourceUrl: ''
-      }
+      configData:
+        platform === Platform.WECHAT
+          ? {
+              type: 'wechat' as const,
+              author: '',
+              contentSourceUrl: ''
+            }
+          : defaultWeiboConfigData()
     }
   })
 
@@ -89,11 +104,14 @@ export function PlatformConfigDialog({
       platform,
       configName: '',
       description: '',
-      configData: {
-        type: platform === Platform.WECHAT ? 'wechat' : 'weibo',
-        author: '',
-        contentSourceUrl: ''
-      }
+      configData:
+        platform === Platform.WECHAT
+          ? {
+              type: 'wechat' as const,
+              author: '',
+              contentSourceUrl: ''
+            }
+          : defaultWeiboConfigData()
     })
   }
 
@@ -107,11 +125,35 @@ export function PlatformConfigDialog({
   // 打开编辑模式
   const handleEdit = (config: any) => {
     setEditingConfig(config)
+    const mergedConfigData =
+      config.platform === Platform.WEIBO
+        ? (() => {
+            const raw = (config.configData || {}) as Record<string, unknown>
+            const m = { ...defaultWeiboConfigData(), ...raw } as Record<
+              string,
+              unknown
+            >
+            const legacyVis = raw.visibility as string | undefined
+            if (
+              legacyVis &&
+              (m.articleVisibility == null || m.articleVisibility === '')
+            ) {
+              m.articleVisibility = legacyVis
+            }
+            if (
+              legacyVis &&
+              (m.imageTextVisibility == null || m.imageTextVisibility === '')
+            ) {
+              m.imageTextVisibility = legacyVis
+            }
+            return m
+          })()
+        : config.configData
     form.reset({
       platform: config.platform,
       configName: config.configName,
       description: config.description || '',
-      configData: config.configData
+      configData: mergedConfigData
     })
     setMode('edit')
   }
@@ -218,194 +260,247 @@ export function PlatformConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-white">
-        <DialogHeader className="space-y-3 pb-4">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
-                <Settings className="size-5 text-foreground" />
-              </div>
-              <div>
-                <DialogTitle className="text-xl font-semibold mb-1">
-                  {platformName} - 平台配置
+      <DialogContent
+        className={cn(
+          'flex max-h-[90vh] w-full max-w-3xl flex-col gap-0 overflow-hidden p-0',
+          'border-neutral-200 bg-white sm:rounded-lg dark:border-neutral-800 dark:bg-neutral-950'
+        )}
+      >
+        <div className="shrink-0 border-b border-neutral-200 px-6 pb-4 pt-5 pr-14 dark:border-neutral-800">
+          <DialogHeader className="space-y-3 text-left sm:text-left">
+            <div className="flex items-start gap-4">
+              <PlatformBrandLogo
+                platform={platform}
+                size={36}
+                tileClassName="bg-neutral-100 dark:bg-neutral-800"
+              />
+              <div className="min-w-0 flex-1 space-y-1">
+                <DialogTitle className="text-lg font-semibold tracking-tight">
+                  {platformName} · 发布配置
                 </DialogTitle>
                 <p className="text-sm text-muted-foreground">
-                  管理 {platformName} 平台的各种配置，每个配置可以用于不同的场景
+                  为不同场景保存预设参数；发文或排期时可一键选用。
                 </p>
               </div>
             </div>
-          </div>
-          
-          {mode === 'list' && (
-            <div className="flex items-center justify-between pt-2">
-              <div>
-                <h3 className="text-base font-medium">配置列表</h3>
-                <p className="text-sm text-muted-foreground">当前有 {configs.length} 个配置，{configs.filter(c => !c.isDefault).length} 个已启用</p>
-              </div>
-              <Button
-                size="sm"
-                onClick={handleCreate}
-              >
-                <Plus className="size-4 mr-1" />
-                新建配置
-              </Button>
-            </div>
-          )}
-        </DialogHeader>
 
-        <div className="space-y-4">
-          {/* 配置列表视图 */}
-          {mode === 'list' && (
-            <div className="space-y-4">
-              {loading ? (
-                <p className="text-center text-gray-500 py-8">加载中...</p>
-              ) : configs.length === 0 ? (
-                <div className="text-center py-12 bg-muted/50 rounded-lg">
-                  <Settings className="size-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-foreground mb-4">还没有配置</p>
-                  <p className="text-sm text-muted-foreground mb-6">
-                    创建配置后,发布内容时可以快速选择预设参数
+            {mode === 'list' && (
+              <div className="mt-4 flex flex-col gap-3 border-t border-neutral-200 pt-4 dark:border-neutral-800 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-base font-medium text-foreground">配置列表</p>
+                  <p className="text-sm text-muted-foreground">
+                    共 {configs.length} 个配置
+                    {configs.some((c) => c.isDefault)
+                      ? `，含 ${configs.filter((c) => c.isDefault).length} 个默认项`
+                      : ''}
                   </p>
-                  <Button
-                    size="sm"
-                    onClick={handleCreate}
-                  >
-                    <Plus className="size-4 mr-1" />
-                    创建第一个配置
-                  </Button>
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  {configs.map((config) => (
-                    <div
-                      key={config.id}
-                      className="p-4 border rounded-lg hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-semibold text-base">{config.configName}</h4>
-                            {config.isDefault && (
-                              <Badge variant="secondary" className="text-xs">
-                                默认
-                              </Badge>
-                            )}
-                          </div>
-                          {config.description && (
-                            <p className="text-sm text-muted-foreground mb-2">
-                              {config.description}
-                            </p>
-                          )}
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <span>使用 {config.usageCount} 次</span>
-                            <span>•</span>
-                            <span>
-                              创建于 {new Date(config.createdAt).toLocaleDateString('zh-CN')}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 ml-4">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleEdit(config)}
-                          >
-                            编辑
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDelete(config)}
-                            className="text-destructive hover:bg-destructive/10"
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 创建/编辑表单视图 */}
-          {(mode === 'create' || mode === 'edit') && (
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">
-                  {mode === 'edit' ? '编辑配置' : '创建新配置'}
-                </h3>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleBackToList}
-                >
-                  <X className="size-4 mr-1" />
-                  返回
+                <Button size="sm" className="shrink-0" onClick={handleCreate}>
+                  <Plus className="mr-1 size-4" />
+                  新建配置
                 </Button>
               </div>
+            )}
 
-              {/* 配置名称 */}
-              <div className="space-y-2">
-                <Label htmlFor="configName">
-                  配置名称 <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="configName"
-                  {...form.register('configName')}
-                  placeholder="例如:默认配置"
-                  className="bg-white border-gray-300"
-                />
-                {form.formState.errors.configName && (
-                  <p className="text-sm text-red-600">
-                    {String(form.formState.errors.configName.message || '')}
+            {(mode === 'create' || mode === 'edit') && (
+              <div className="mt-4 flex flex-col gap-3 border-t border-neutral-200 pt-4 dark:border-neutral-800 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-base font-medium text-foreground">
+                    {mode === 'edit' ? '编辑配置' : '新建配置'}
                   </p>
-                )}
-              </div>
-
-              {/* 配置描述 */}
-              <div className="space-y-2">
-                <Label htmlFor="description">配置描述</Label>
-                <Textarea
-                  id="description"
-                  {...form.register('description')}
-                  placeholder="简要描述这个配置的用途"
-                  className="bg-white border-gray-300 resize-none"
-                  rows={2}
-                />
-              </div>
-
-              {/* 平台特定字段 */}
-              <div className="border-t pt-4">
-                <h4 className="font-medium mb-4">平台参数</h4>
-                {platform === Platform.WECHAT && (
-                  <WechatConfigFields form={form} />
-                )}
-              </div>
-
-              {/* 提交按钮 */}
-              <div className="flex gap-2 justify-end pt-4 border-t">
+                  {mode === 'edit' && editingConfig ? (
+                    <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                      {editingConfig.configName}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      填写名称与平台参数后保存
+                    </p>
+                  )}
+                </div>
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
+                  className="shrink-0"
                   onClick={handleBackToList}
                 >
-                  取消
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={form.formState.isSubmitting}
-                >
-                  {form.formState.isSubmitting 
-                    ? (mode === 'edit' ? '更新中...' : '创建中...') 
-                    : (mode === 'edit' ? '保存修改' : '创建配置')}
+                  <ArrowLeft className="mr-1 size-4" />
+                  返回列表
                 </Button>
               </div>
-            </form>
-          )}
+            )}
+          </DialogHeader>
         </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+          <div className="space-y-4 px-6 py-4">
+            {mode === 'list' && (
+              <div className="space-y-4">
+                {loading ? (
+                  <p className="py-10 text-center text-sm text-muted-foreground">
+                    加载中…
+                  </p>
+                ) : configs.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-neutral-300 px-6 py-12 text-center dark:border-neutral-700">
+                    <Settings className="mx-auto mb-4 size-10 text-muted-foreground" />
+                    <p className="mb-1 font-medium text-foreground">
+                      还没有配置
+                    </p>
+                    <p className="mb-6 text-sm text-muted-foreground">
+                      创建后可在发布流程中快速选择预设
+                    </p>
+                    <Button size="sm" onClick={handleCreate}>
+                      <Plus className="mr-1 size-4" />
+                      创建第一个配置
+                    </Button>
+                  </div>
+                ) : (
+                  <ul className="space-y-3">
+                    {configs.map((config) => (
+                      <li
+                        key={config.id}
+                        className="rounded-lg border border-neutral-200 p-4 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-900"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-1 flex flex-wrap items-center gap-2">
+                              <h4 className="text-base font-semibold">
+                                {config.configName}
+                              </h4>
+                              {config.isDefault && (
+                                <Badge variant="secondary" className="text-xs">
+                                  默认
+                                </Badge>
+                              )}
+                            </div>
+                            {config.description ? (
+                              <p className="mb-2 text-sm text-muted-foreground">
+                                {config.description}
+                              </p>
+                            ) : null}
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              <span>使用 {config.usageCount} 次</span>
+                              <span className="hidden sm:inline">·</span>
+                              <span>
+                                创建于{' '}
+                                {new Date(config.createdAt).toLocaleDateString(
+                                  'zh-CN'
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 gap-2 sm:ml-4">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(config)}
+                            >
+                              编辑
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDelete(config)}
+                              className="text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {(mode === 'create' || mode === 'edit') && (
+              <form
+                id="platform-config-form"
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="space-y-6"
+              >
+                  <div className="overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-800">
+                  <div className="border-b border-neutral-200 bg-neutral-100 px-4 py-2.5 text-sm font-medium text-foreground dark:border-neutral-800 dark:bg-neutral-900">
+                    基本信息
+                  </div>
+                  <div className="space-y-4 p-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="configName">
+                        配置名称 <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="configName"
+                        {...form.register('configName')}
+                        placeholder="例如：默认配置 / 活动专题"
+                        className="bg-white dark:bg-neutral-900"
+                      />
+                      {form.formState.errors.configName && (
+                        <p className="text-sm text-destructive">
+                          {String(
+                            form.formState.errors.configName.message || ''
+                          )}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="description">配置描述</Label>
+                      <Textarea
+                        id="description"
+                        {...form.register('description')}
+                        placeholder="简要说明用途，方便日后挑选"
+                        className="resize-none bg-white dark:bg-neutral-900"
+                        rows={2}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-sm font-medium text-foreground">
+                    平台参数
+                  </p>
+                  {platform === Platform.WECHAT && (
+                    <WechatConfigFields form={form} />
+                  )}
+                  {platform === Platform.WEIBO && (
+                    <WeiboConfigFields form={form} />
+                  )}
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+
+        {(mode === 'create' || mode === 'edit') && (
+          <div className="shrink-0 border-t border-neutral-200 bg-neutral-100 px-6 py-4 dark:border-neutral-800 dark:bg-neutral-900">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-neutral-200 bg-white sm:w-auto dark:border-neutral-700 dark:bg-neutral-950"
+                onClick={handleBackToList}
+              >
+                取消
+              </Button>
+              <Button
+                type="submit"
+                form="platform-config-form"
+                className="w-full sm:w-auto"
+                disabled={form.formState.isSubmitting}
+              >
+                {form.formState.isSubmitting
+                  ? mode === 'edit'
+                    ? '保存中…'
+                    : '创建中…'
+                  : mode === 'edit'
+                    ? '保存修改'
+                    : '创建配置'}
+              </Button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

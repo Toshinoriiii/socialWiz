@@ -1,0 +1,361 @@
+openapi: 3.0.3
+info:
+  title: SocialWiz — 微博平台集成 API
+  description: |
+    与 `specs/main` 规划一致：用户主流程为「绑定微博 → 微博 OAuth → 回站使用发布与（迭代）数据能力」。
+    契约覆盖 OAuth、发布、账号状态及管理；**用户维度微博应用配置**为多租户实现手段，见 `/api/platforms/weibo/app-configs`（Planned）。
+    **无 OAuth 的浏览器会话绑定**见同目录 `browser-uploader-api.yaml`（`playwright-bind`）；发帖走统一 `POST /api/platforms/publish` 与站内 HTTP 复现。
+    实现状态以仓库内 `app/api/platforms/weibo` 为准。
+  version: "1.1.0"
+
+tags:
+  - name: WeiboAppConfig
+    description: 用户微博应用凭证（Planned — 对齐 003 规范）
+  - name: WeiboAuthentication
+  - name: WeiboPublishing
+  - name: WeiboManagement
+
+paths:
+  /api/platforms/weibo/app-configs:
+    get:
+      tags: [WeiboAppConfig]
+      summary: 列出当前用户的微博应用配置
+      operationId: listWeiboAppConfigs
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WeiboAppConfigPublic"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [WeiboAppConfig]
+      summary: 创建微博应用配置
+      operationId: createWeiboAppConfig
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeiboAppConfigCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeiboAppConfigPublic"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/platforms/weibo/app-configs/{configId}:
+    patch:
+      tags: [WeiboAppConfig]
+      summary: 更新微博应用配置
+      operationId: updateWeiboAppConfig
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ConfigId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeiboAppConfigPatch"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeiboAppConfigPublic"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [WeiboAppConfig]
+      summary: 删除微博应用配置（需处理级联账号策略）
+      operationId: deleteWeiboAppConfig
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/ConfigId"
+      responses:
+        "204":
+          description: No Content
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/platforms/weibo/auth:
+    get:
+      tags: [WeiboAuthentication]
+      summary: 获取微博 OAuth 授权 URL
+      operationId: getWeiboAuthUrl
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: weiboAppConfigId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: |
+            Planned：指定用于签名的应用配置。未实现前可省略，由服务端使用环境变量。
+      responses:
+        "200":
+          description: 授权 URL 与 state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authUrl, state]
+                properties:
+                  authUrl:
+                    type: string
+                    format: uri
+                  state:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/platforms/weibo/auth/callback:
+    get:
+      tags: [WeiboAuthentication]
+      summary: 微博 OAuth 回调
+      operationId: weiboOAuthCallback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "302":
+          description: 重定向回应用内页面
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/platforms/weibo/{platformAccountId}/publish:
+    post:
+      tags: [WeiboPublishing]
+      summary: 发布内容到微博
+      operationId: publishToWeibo
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/PlatformAccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishContentRequest"
+      responses:
+        "200":
+          description: 发布结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: 频率限制
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /api/platforms/weibo/{platformAccountId}/disconnect:
+    post:
+      tags: [WeiboManagement]
+      summary: 断开微博账号
+      operationId: disconnectWeibo
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/PlatformAccountId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/platforms/weibo/{platformAccountId}/status:
+    get:
+      tags: [WeiboManagement]
+      summary: 微博账号连接与 Token 状态
+      operationId: getWeiboStatus
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: "#/components/parameters/PlatformAccountId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeiboAccountStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 与现有 AuthService 颁发 token 一致
+
+  parameters:
+    PlatformAccountId:
+      name: platformAccountId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ConfigId:
+      name: configId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: 未授权
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadRequest:
+      description: 请求无效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServerError:
+      description: 服务器错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    WeiboAppConfigCreate:
+      type: object
+      required: [appId, appSecret, callbackUrl]
+      properties:
+        appId:
+          type: string
+        appSecret:
+          type: string
+        appName:
+          type: string
+        callbackUrl:
+          type: string
+          format: uri
+
+    WeiboAppConfigPatch:
+      type: object
+      properties:
+        appId: { type: string }
+        appSecret: { type: string }
+        appName: { type: string }
+        callbackUrl: { type: string, format: uri }
+        isActive: { type: boolean }
+
+    WeiboAppConfigPublic:
+      type: object
+      required: [id, userId, appId, callbackUrl, isActive, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        appId: { type: string, description: 可脱敏展示 }
+        appName: { type: string, nullable: true }
+        callbackUrl: { type: string, format: uri }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PublishContentRequest:
+      type: object
+      required: [contentId]
+      properties:
+        contentId:
+          type: string
+          format: uuid
+        text:
+          type: string
+          maxLength: 2000
+        images:
+          type: array
+          maxItems: 9
+          items: { type: string, format: uri }
+        video: { type: string, format: uri }
+        url: { type: string, format: uri }
+
+    PublishResult:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        platformPostId: { type: string }
+        publishedUrl: { type: string, format: uri }
+        error: { type: string }
+        errorCode: { type: string }
+
+    WeiboAccountStatus:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        platform: { type: string, enum: [WEIBO] }
+        platformUsername: { type: string }
+        isConnected: { type: boolean }
+        tokenExpiry: { type: string, format: date-time, nullable: true }
+        needsReauth: { type: boolean }
+        weiboAppConfigId: { type: string, format: uuid, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        errorCode: { type: string }
+        details: { type: object }

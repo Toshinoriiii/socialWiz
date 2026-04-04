@@ -1,4 +1,4 @@
-import ReactMarkdown from 'react-markdown';
+﻿import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { WorkflowStep, StepStatus } from './WorkflowStep';
 import { FinalResultCard } from './FinalResultCard';
@@ -39,11 +39,15 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   console.log('[WorkflowMessageRenderer] Contains WORKFLOW_SUSPENDED:', content.includes('<!--WORKFLOW_SUSPENDED-->'));
   
   // 先提取意图识别信息(在处理之前)
-  const intentMatch = content.match(/<!--INTENT_RECOGNITION_START-->(.*?)<!--INTENT_RECOGNITION_END-->/s);
+  const intentMatch = content.match(
+    /<!--INTENT_RECOGNITION_START-->([\s\S]*?)<!--INTENT_RECOGNITION_END-->/
+  );
   const intentRecognition = intentMatch ? intentMatch[1].trim() : null;
   
   // 从意图识别结果中提取 workflowType
-  const intentTypeMatch = content.match(/<!--INTENT_RECOGNITION_START-->.*?intent.*?`(.*?)`/s);
+  const intentTypeMatch = content.match(
+    /<!--INTENT_RECOGNITION_START-->[\s\S]*?intent[\s\S]*?`(.*?)`/
+  );
   const intent = intentTypeMatch ? intentTypeMatch[1] : null;
   
   // 提取 workflowType，支持多种格式
@@ -71,7 +75,7 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   // 移除意图识别结果部分(在移除HTML标签之前)
   if (intentRecognition) {
     processedContent = processedContent.replace(
-      /<!--INTENT_RECOGNITION_START-->.*?<!--INTENT_RECOGNITION_END-->/s,
+      /<!--INTENT_RECOGNITION_START-->[\s\S]*?<!--INTENT_RECOGNITION_END-->/,
       ''
     );
   }
@@ -87,7 +91,8 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   let remainingContent = processedContent;
 
   // 正则表达式匹配步骤标记(支持未完成的步骤)
-  const stepRegex = /<!--STEP:([^:]+):START:([^>]+)-->(.*?)(?:<!--STEP:\1:END:([^>]+)-->|$)/gs;
+  const stepRegex =
+    /<!--STEP:([^:]+):START:([^>]+)-->([\s\S]*?)(?:<!--STEP:\1:END:([^>]+)-->|$)/g;
   const matches = Array.from(processedContent.matchAll(stepRegex));
   
   console.log('[WorkflowMessageRenderer] Found steps:', matches.length);
@@ -155,7 +160,9 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   console.log('[WorkflowMessageRenderer] Remaining content length:', remainingContent.length);
   
   // 提取最终结果(使用处理后的内容)
-  const finalResultMatch = processedContent.match(/<!--FINAL_RESULT_START-->(.*?)<!--FINAL_RESULT_END-->/s);
+  const finalResultMatch = processedContent.match(
+    /<!--FINAL_RESULT_START-->([\s\S]*?)<!--FINAL_RESULT_END-->/
+  );
   let finalResult = finalResultMatch ? finalResultMatch[1].trim() : null;
   
   // 移除标题部分（如果存在）
@@ -394,32 +401,39 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
         }
       }
       
-      // 处理封面图
-      let coverImageUrl = data.coverImage;
+      // 处理封面图（与正文配图同源上传后的 URL）
+      let coverImageUrl = data.coverImage?.trim() || undefined;
       if (coverImageUrl && uploadedImageUrls.length > 0) {
         // 如果封面图在图片列表中，使用对应的上传后的URL
         const coverIndex = data.images.indexOf(coverImageUrl);
         if (coverIndex >= 0 && coverIndex < uploadedImageUrls.length) {
           coverImageUrl = uploadedImageUrls[coverIndex];
         } else {
-          // 如果封面图不在列表中，单独下载上传
-          const coverFile = await downloadImageAsFile(coverImageUrl, 0);
-          if (coverFile) {
-            const coverFormData = new FormData();
-            coverFormData.append('images', coverFile);
-            const coverUploadResponse = await fetch('/api/content/images/upload', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`
-              },
-              body: coverFormData
-            });
-            const coverUploadResult = await coverUploadResponse.json();
-            if (coverUploadResponse.ok && coverUploadResult.imageUrls && coverUploadResult.imageUrls.length > 0) {
-              coverImageUrl = coverUploadResult.imageUrls[0];
+          // 封面可能是已上传的站内地址，或不在列表中：尝试按索引对齐，否则单独下载上传
+          const coverInUploaded = uploadedImageUrls.includes(coverImageUrl);
+          if (!coverInUploaded) {
+            const coverFile = await downloadImageAsFile(coverImageUrl, 0);
+            if (coverFile) {
+              const coverFormData = new FormData();
+              coverFormData.append('images', coverFile);
+              const coverUploadResponse = await fetch('/api/content/images/upload', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`
+                },
+                body: coverFormData
+              });
+              const coverUploadResult = await coverUploadResponse.json();
+              if (coverUploadResponse.ok && coverUploadResult.imageUrls && coverUploadResult.imageUrls.length > 0) {
+                coverImageUrl = coverUploadResult.imageUrls[0];
+              }
             }
           }
         }
+      }
+      // AI 文章仅有配图、未单独标封面时：用首张配图作为封面，编辑器打开即可直接展示
+      if (!coverImageUrl && uploadedImageUrls.length > 0) {
+        coverImageUrl = uploadedImageUrls[0];
       }
       
       // 确定 contentType
@@ -483,7 +497,7 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
   // 从剩余内容中移除最终结果标记
   if (finalResult) {
     remainingContent = remainingContent
-      .replace(/<!--FINAL_RESULT_START-->.*?<!--FINAL_RESULT_END-->/s, '')
+      .replace(/<!--FINAL_RESULT_START-->[\s\S]*?<!--FINAL_RESULT_END-->/, '')
       .trim();
   }
   

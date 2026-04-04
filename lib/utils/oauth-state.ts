@@ -13,18 +13,27 @@ export interface OAuthState {
   redirectUri?: string
   platform: string
   createdAt: number
+  /** 微博用户维度应用配置，用于回调换票 */
+  weiboAppConfigId?: string
 }
 
 /**
  * 生成 OAuth state 参数
+ * @param weiboAppConfigId 可选；微博 OAuth 回调时用于选择 App Key/Secret
  */
-export function generateOAuthState(userId: string, platform: string, redirectUri?: string): string {
+export function generateOAuthState(
+  userId: string,
+  platform: string,
+  redirectUri?: string,
+  weiboAppConfigId?: string
+): string {
   const state = randomBytes(32).toString('hex')
   const stateData: OAuthState = {
     userId,
     platform,
     redirectUri,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    ...(weiboAppConfigId ? { weiboAppConfigId } : {})
   }
 
   // 保存到 Redis，10 分钟过期

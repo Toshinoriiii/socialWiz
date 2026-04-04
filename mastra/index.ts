@@ -2,7 +2,6 @@
 import { Mastra } from '@mastra/core/mastra';
 import { PinoLogger } from '@mastra/loggers';
 import { LibSQLStore } from '@mastra/libsql';
-import { createOpenAI } from '@ai-sdk/openai';
 import { webSearchAgent } from './agents/web-search-agent';
 import { contentCreationAgent } from './agents/content-creation-agent';
 import { imagePromptAgent } from './agents/image-prompt-agent';
@@ -13,26 +12,17 @@ import { imageGenerationAgent } from './agents/image-generation-agent';
 import { contentFormatterAgent } from './agents/content-formatter-agent';
 import { getMCPTools } from './mcp';
 
-// 创建 DeepSeek LLM 实例
-const deepseek = createOpenAI({
-  baseURL: 'https://api.deepseek.com',
-  apiKey: process.env.DEEPSEEK_API_KEY,
-});
-
 // 创建 Mastra 实例的异步初始化函数
 async function createMastraInstance() {
-  let mcpTools = {};
-  
   try {
-    // 使用单例的 getMCPTools 加载工具（带缓存）
-    mcpTools = await getMCPTools();
-    console.log('[Mastra] MCP tools loaded successfully');
+    await getMCPTools()
+    console.log('[Mastra] MCP tools loaded successfully')
   } catch (error) {
-    console.warn('[Mastra] Failed to load MCP tools, continuing without them:', error);
+    console.warn('[Mastra] Failed to load MCP tools, continuing without them:', error)
   }
 
   return new Mastra({
-    agents: { 
+    agents: {
       intentRouterAgent,
       webSearchAgent,
       contentCreationAgent,
@@ -41,10 +31,6 @@ async function createMastraInstance() {
       socialMediaAgent,
       imageGenerationAgent,
       contentFormatterAgent,
-    },
-    tools: mcpTools,
-    llms: {
-      deepseek: deepseek('deepseek-chat'),
     },
     storage: new LibSQLStore({
       // stores observability, scores, ... into memory storage, if it needs to persist, change to file:../mastra.db

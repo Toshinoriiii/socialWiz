@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 微信公众号配置管理服务
  * Feature: 005-wechat-integration
  */
@@ -55,6 +55,15 @@ export class WechatConfigService {
    */
   async createConfig(request: CreateConfigRequest): Promise<ConfigResponse> {
     const { userId, appId, appSecret, accountName, subjectType } = request
+
+    const existingCount = await (prisma as any).wechatAccountConfig.count({
+      where: { userId }
+    })
+    if (existingCount >= 1) {
+      throw new Error(
+        '当前仅支持绑定一个微信公众号。如需更换，请先删除现有配置后再添加。'
+      )
+    }
 
     // 检查是否已存在相同的配置
     const existing = await (prisma as any).wechatAccountConfig.findUnique({

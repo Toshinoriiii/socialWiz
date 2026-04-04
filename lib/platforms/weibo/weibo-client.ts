@@ -147,4 +147,35 @@ export class WeiboClient {
   getConfig(): WeiboConfig {
     return { ...this.config }
   }
+
+  /**
+   * 查询 access_token 有效期等信息（OAuth2 get_token_info，根域接口非 /2）
+   */
+  /**
+   * 单条微博详情（含转发、评论、点赞数等，需 access_token 与读权限）
+   */
+  async getStatusShow (
+    accessToken: string,
+    id: string
+  ): Promise<Record<string, unknown>> {
+    return this.get<Record<string, unknown>>('/statuses/show.json', {
+      access_token: accessToken,
+      id
+    })
+  }
+
+  async getOauthTokenInfo(accessToken: string): Promise<{ expire_in?: number; uid?: string }> {
+    const response = await axios.get<{ expire_in?: number; uid?: string; error?: string }>(
+      'https://api.weibo.com/oauth2/get_token_info',
+      {
+        params: { access_token: accessToken },
+        timeout: 15000
+      }
+    )
+    const data = response.data
+    if (data && typeof data === 'object' && 'error' in data && data.error) {
+      throw new Error(String(data.error))
+    }
+    return data
+  }
 }

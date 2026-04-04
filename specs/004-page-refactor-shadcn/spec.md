@@ -71,7 +71,7 @@
 - **FR-008**: 系统必须确保页面响应式设计，适配移动端和桌面端
 - **FR-009**: 系统必须保持与现有 API 的兼容性
 - **FR-010**: 系统必须确保页面样式与 shadcn/ui 设计系统一致
-- **FR-011**: 页面重构范围包括：login 页面 + dashboard 下除 test-weibo 外的所有页面（home, publish, schedule, analytics, settings, layout.tsx, page.tsx）
+- **FR-011**: 页面重构范围包括：login 页面 + dashboard 下各产品页面（home, publish 及 publish/* 子路由, schedule, analytics, settings, accounts, platforms, layout.tsx, page.tsx 等）；不含已移除的调试页
 - **FR-012**: 迁移优先级按页面复杂度，简单页面优先：login → home → settings → publish → analytics → schedule
 
 ### Key Entities *(include if feature involves data)*
@@ -91,14 +91,14 @@
 - Q: 页面重构的范围？ → A: 包括所有 dashboard 页面和认证页面，优先重构核心页面
 - Q: 页面中组件使用方式？ → A: 页面继续使用 `components/ui/` 下已有的 shadcn 风格组件（如 `@/components/ui/Button`），不允许修改这些组件
 - Q: CSS Modules 迁移策略？ → A: 仅移除页面级别的 CSS Modules 文件（如 `app/(auth)/login/login.module.css`），保留组件级别的 CSS Modules（如 `components/layout/Header.module.css`）
-- Q: 需要重构的页面范围？ → A: login 页面 + dashboard 下除 test-weibo 外的所有页面（home, publish, schedule, analytics, settings, layout.tsx, page.tsx）
+- Q: 需要重构的页面范围？ → A: 与 **FR-011** 一致（login + dashboard 产品页，含 accounts、platforms、publish 子路由等；不含已删除调试页）
 - Q: 页面样式迁移的优先级顺序？ → A: 按页面复杂度迁移，简单页面优先：login → home → settings → publish → analytics → schedule
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: 所有目标页面（login + dashboard 除 test-weibo 外）成功使用 shadcn 风格组件，迁移完成率达到 100%
+- **SC-001**: 所有目标页面（login + **FR-011** 所列 dashboard 产品页）成功使用 shadcn 风格组件，迁移完成率达到 100%
 - **SC-002**: 页面功能保持不变，功能测试通过率达到 100%
 - **SC-003**: 代码质量提升，页面代码组织更清晰
 - **SC-004**: 页面级别的 CSS Modules 文件移除率达到 100%，所有页面样式使用 Tailwind CSS

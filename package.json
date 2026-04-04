@@ -16,7 +16,9 @@
     "db:studio": "npx dotenv-cli -e .env.local -- prisma studio",
     "db:seed": "ts-node scripts/seed.ts",
     "db:view": "ts-node scripts/view-data.ts",
-    "deploy": "bash scripts/deploy.sh"
+    "deploy": "bash scripts/deploy.sh",
+    "weibo:session": "node scripts/weibo-playwright/save-session.mjs",
+    "weibo:open": "node scripts/weibo-playwright/open-weibo.mjs"
   },
   "repository": {
     "type": "git",
@@ -105,11 +107,13 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/bull": "^3.15.9",
     "@types/jsonwebtoken": "^9.0.10",
     "dotenv": "^16.4.5",
     "dotenv-cli": "^7.4.2",
+    "playwright": "^1.50.0",
     "prisma": "^5.22.0",
     "shadcn": "^3.6.3",
     "stylus": "^0.64.0"

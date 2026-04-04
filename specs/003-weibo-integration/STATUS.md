@@ -1,8 +1,10 @@
 # 微博平台接入功能 - 当前状态
 
 **Feature**: 003-weibo-integration  
-**最后更新**: 2025-01-13  
-**状态**: 🟡 开发中 (Development In Progress)
+**最后更新**: 2026-04-04  
+**状态**: 📦 已归档（Archival）；**现行标准见 `specs/main/` 与 `ARCHIVED.md`**
+
+> 本文件已按 **2026-04 代码与主规格** 修订过；若与 `specs/main` 冲突，以 **`specs/main`** 为准。
 
 ## 📊 总体进度
 
@@ -61,10 +63,10 @@
 
 ### 5. 测试和文档
 
-- ✅ 前端测试页面 (`app/(dashboard)/test-weibo/page.tsx`)
+- ✅ **产品内验证**：账号管理 `/accounts`、统一发布 `POST /api/platforms/publish`、单账号 `POST /api/platforms/weibo/{id}/publish`（不再维护独立 `/test-weibo` 调试页）
 - ✅ 平台账号列表 API (`GET /api/platforms`)
 - ✅ 本地开发配置指南 (`docs/WEIBO_LOCAL_SETUP.md`)
-- ✅ Quickstart 文档更新
+- ✅ 主规格 Quickstart：`specs/main/quickstart.md`
 
 ### 6. 代码质量
 
@@ -92,9 +94,9 @@
    - [ ] 设置 ngrok 或其他内网穿透工具（参考 `docs/WEIBO_LOCAL_SETUP.md`）
 
 2. **测试验证**:
-   - [ ] 使用测试页面 (`/dashboard/test-weibo`) 验证 OAuth 流程
-   - [ ] 测试内容发布功能
-   - [ ] 测试 token 过期场景
+   - [ ] 在 **`/accounts`**（及平台管理 `/platforms`）验证 OAuth 与浏览器会话绑定流程
+   - [ ] 测试内容发布功能（统一发布接口 + 会话型账号）
+   - [ ] 测试 token 过期场景（OAuth 账号）
    - [ ] 验证错误处理
 
 ### 可选任务（后续迭代）
@@ -144,11 +146,10 @@ app/api/platforms/weibo/
 │       └── route.ts             ✅ 获取状态
 
 app/api/platforms/
+├── publish/route.ts             ✅ 统一发布（含微博会话型）
 └── route.ts                     ✅ 平台账号列表
 
-app/(dashboard)/test-weibo/
-├── page.tsx                     ✅ 测试页面
-└── test-weibo.module.css        ✅ 样式文件
+lib/weibo-playwright/            ✅ 浏览器会话 Cookie、头条/图文 HTTP 复现发博（compose-runner 等）
 ```
 
 ### 文档文件
@@ -181,7 +182,7 @@ docs/
    - 配置环境变量
 
 2. **功能测试**:
-   - 使用测试页面验证 OAuth 流程
+   - 在 **账号管理** 验证 OAuth 与会话绑定
    - 测试内容发布功能
    - 验证错误处理
 
@@ -222,7 +223,8 @@ docs/
 - **微博开放平台**: https://open.weibo.com/
 - **API 文档**: https://open.weibo.com/wiki/API
 - **本地开发配置**: `docs/WEIBO_LOCAL_SETUP.md`
-- **快速开始**: `specs/003-weibo-integration/quickstart.md`
+- **快速开始（现行）**: `specs/main/quickstart.md`  
+- **本包 quickstart**: `specs/003-weibo-integration/quickstart.md`（历史步骤，与 OAuth 主路径更贴近）
 
 ---
 
@@ -231,16 +233,16 @@ docs/
 ### 测试流程
 
 1. 启动开发服务器: `pnpm dev`
-2. 启动 ngrok: `ngrok http 3000`
+2. 启动 ngrok: `ngrok http 3000`（OAuth 回调需要公网 HTTPS）
 3. 更新环境变量中的 ngrok URL
-4. 访问测试页面: `http://localhost:3000/dashboard/test-weibo`
-5. 测试各项功能
+4. 打开 **`/accounts`**（或 **`/platforms`**）完成绑定与发布验证
+5. 主路径验证清单见 `specs/main/quickstart.md`
 
 ### 调试技巧
 
 - 查看浏览器控制台日志
 - 查看服务器端日志（OAuth 流程、API 调用）
-- 使用测试页面的"查看状态"功能检查 token 信息
+- 账号页或平台页查看连接状态；会话型账号依赖 `scripts/weibo-playwright/sessions/` 与会话 profile
 - 检查 Redis 中的 OAuth state（key: `oauth:weibo:{state}`）
 
 ---
@@ -252,9 +254,9 @@ docs/
 - **2025-01-13**: OAuth 授权流程实现
 - **2025-01-13**: 内容发布功能实现
 - **2025-01-13**: Token 刷新机制实现
-- **2025-01-13**: 测试页面和文档创建
-- **下次迭代**: 环境配置和功能测试
+- **2025-01-13**: 文档与早期验证流程创建
+- **2026-04-04**: 规格与 STATUS 按「现行标准」修订并标记归档（见 `ARCHIVED.md`、`specs/archive/README.md`）
 
 ---
 
-**状态**: 核心功能开发完成，等待环境配置和测试验证
+**状态**: 功能已由主规格 `specs/main` 继承；本包作历史归档参考

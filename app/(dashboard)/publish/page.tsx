@@ -94,7 +94,9 @@ export default function PublishPage() {
       content: aiContent,
       platforms
     })
-    alert('发布成功！（这是 mock 数据）')
+    alert(
+      '当前页为演示编辑器。真实发布请打开「作品」→ 选择草稿 → 进入发布流程（支持微博浏览器会话与微信公众号等）。'
+    )
   }
 
   const handlePublish = () => {
@@ -115,7 +117,9 @@ export default function PublishPage() {
       scheduledTime
     })
 
-    alert('发布成功！（这是 mock 数据）')
+    alert(
+      '当前页为演示编辑器。真实发布请打开「作品」→ 选择草稿 → 进入发布流程（支持微博浏览器会话与微信公众号等）。'
+    )
     
     // 重置表单
     setContent('')

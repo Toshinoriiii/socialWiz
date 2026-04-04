@@ -2,10 +2,12 @@
 
 **Feature Branch**: `003-weibo-integration`  
 **Created**: 2025-01-13  
-**Last Updated**: 2026-01-17  
-**Status**: 🟡 Development In Progress (核心功能已完成，待测试验证)  
+**Last Updated**: 2026-04-04  
+**Status**: 📦 Archived — 现行实现与契约以 **`specs/main/`** 为准（见 **`ARCHIVED.md`**、`specs/archive/README.md`）  
 **Input**: User description: "开始接入微博平台"  
-**Progress**: ~95% (核心功能完成，待环境配置和测试)
+**Progress**: OAuth/开放平台与浏览器会话双路径已在主仓落地；下文保留原用户故事结构供审计。
+
+> **与现行标准不一致时**：以 `specs/main/spec.md`、`specs/main/quickstart.md`、`specs/main/contracts/*.yaml` 及 `lib/weibo-playwright/`、`lib/services/publish.service.ts` 为准。
 
 ## 平台接入架构说明 *(mandatory)*
 

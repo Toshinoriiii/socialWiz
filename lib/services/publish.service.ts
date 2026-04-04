@@ -11,13 +11,28 @@ import { WechatTokenService } from '@/lib/services/wechat-token.service'
 import { WechatConfigService } from '@/lib/services/wechat-config.service'
 import { PlatformConfigService } from '@/lib/services/platform-config.service'
 import { WeiboAdapter } from '@/lib/platforms/weibo/weibo-adapter'
-import type { WechatPublishConfigData } from '@/types/platform-config.types'
+import { decrypt } from '@/lib/utils/encryption'
+import { decryptWeiboToken } from '@/lib/utils/weibo-token-crypto'
+import { isTokenExpired } from '@/lib/platforms/weibo/weibo-utils'
+import type {
+  WechatPublishConfigData,
+  WeiboPublishConfigData
+} from '@/types/platform-config.types'
+import { isWeiboConfig } from '@/types/platform-config.types'
+import { isWeiboBrowserSessionAccount } from '@/lib/platforms/connection-kind'
+import {
+  NonOfficialPublishService,
+  type WeiboSessionPostInsights
+} from '@/lib/services/non-official-publish.service'
+import { absoluteUrlsForContent } from '@/lib/utils/content-image-urls'
 
 export interface UnifiedPublishInput {
   userId: string
   platform: Platform
   /** 账号ID：WECHAT=WechatAccountConfig.id, WEIBO=PlatformAccount.id */
   accountId: string
+  /** 作品/草稿 ID，写入 PublishJob 与发布记录 */
+  contentId?: string
   /** 平台发布配置ID (PlatformPublishConfig) - 提供作者、原文链接等 */
   publishConfigId?: string
   title: string
@@ -36,6 +51,12 @@ export interface UnifiedPublishResult {
   publishedUrl?: string
   message?: string
   error?: string
+  /** 非官方引擎异步任务 */
+  jobId?: string
+  /** 前端可轮询 GET /api/platforms/publish/jobs/:jobId */
+  requiresJobPolling?: boolean
+  /** 微博会话发博成功后，m.weibo.cn 单帖洞察（若有） */
+  postInsights?: WeiboSessionPostInsights
 }
 
 export class PublishService {
@@ -141,11 +162,23 @@ export class PublishService {
    * 微博发布：配置项 + 微博发布逻辑
    */
   private static async publishWeibo(input: UnifiedPublishInput): Promise<UnifiedPublishResult> {
-    const { userId, accountId, publishConfigId, content } = input
+    const { userId, accountId, content, contentId, title, publishConfigId } = input
 
-    // 1. 查找平台账号
+    let weiboPublishConfig: WeiboPublishConfigData | undefined
+    if (publishConfigId) {
+      const pc = await PlatformConfigService.getConfigById(
+        publishConfigId,
+        userId
+      )
+      if (pc?.platform === Platform.WEIBO && isWeiboConfig(pc.configData)) {
+        weiboPublishConfig = pc.configData
+      }
+    }
+
+    // 1. 查找平台账号（含微博应用配置）
     const platformAccount = await prisma.platformAccount.findUnique({
       where: { id: accountId },
+      include: { weiboAppConfig: true }
     })
     if (!platformAccount) {
       return { success: false, error: '平台账号不存在' }
@@ -156,15 +189,86 @@ export class PublishService {
     if (!platformAccount.isConnected) {
       return { success: false, error: '账号未连接，请先连接账号' }
     }
+    if (isWeiboBrowserSessionAccount(platformAccount)) {
+      let text = content.trim()
+      let imageUrls: string[] | undefined
+      let contentType: string | undefined
+      let weiboTitle: string | undefined = title.trim() || undefined
+      if (contentId) {
+        const c = await prisma.content.findUnique({ where: { id: contentId } })
+        if (c) {
+          if (!weiboTitle && c.title) weiboTitle = c.title
+          contentType = c.contentType ?? undefined
+          text = (c.content || text).trim()
+          imageUrls = absoluteUrlsForContent(
+            process.env.NEXT_PUBLIC_BASE_URL,
+            c.coverImage,
+            c.images
+          )
+        }
+      }
+      if (!text) {
+        return { success: false, error: '内容不能为空' }
+      }
+      const r = await NonOfficialPublishService.publishWeiboBrowserSession({
+        userId,
+        platformAccountId: accountId,
+        text,
+        contentId,
+        source: 'unified_publish',
+        imageUrls,
+        title: weiboTitle,
+        contentType,
+        weiboPublishConfig
+      })
+      if (!r.success) {
+        return {
+          success: false,
+          error: r.error,
+          message: r.message,
+          jobId: r.jobId,
+          requiresJobPolling: !!r.jobId
+        }
+      }
+      return {
+        success: true,
+        jobId: r.jobId,
+        requiresJobPolling: true,
+        message: r.message,
+        platformPostId: r.platformPostId,
+        publishedUrl: r.publishedUrl,
+        postInsights: r.postInsights
+      }
+    }
+    if (isTokenExpired(platformAccount.tokenExpiry ?? undefined)) {
+      return {
+        success: false,
+        error: '微博授权已过期，请在账号管理重新绑定微博'
+      }
+    }
 
-    // 2. 从 PlatformPublishConfig 获取可见性等配置（可选，当前微博适配器仅用 text）
-    // 后续可扩展 visibility、allowComment 等
+    let appKey = process.env.WEIBO_APP_KEY || ''
+    let appSecret = process.env.WEIBO_APP_SECRET || ''
+    let redirectUri = process.env.WEIBO_REDIRECT_URI || ''
+    if (platformAccount.weiboAppConfig) {
+      appKey = platformAccount.weiboAppConfig.appId
+      try {
+        appSecret = decrypt(platformAccount.weiboAppConfig.appSecret)
+      } catch {
+        return { success: false, error: '微博应用配置解密失败，请重新保存应用凭证' }
+      }
+      redirectUri = platformAccount.weiboAppConfig.callbackUrl
+    }
 
-    // 3. 调用微博适配器发布
+    const accessToken = decryptWeiboToken(platformAccount.accessToken)
+    if (!accessToken) {
+      return { success: false, error: '无法读取微博访问令牌，请重新绑定' }
+    }
+
     const adapter = new WeiboAdapter({
-      appKey: process.env.WEIBO_APP_KEY || '',
-      appSecret: process.env.WEIBO_APP_SECRET || '',
-      redirectUri: process.env.WEIBO_REDIRECT_URI || '',
+      appKey,
+      appSecret,
+      redirectUri
     })
 
     const publishText = content.trim()
@@ -172,7 +276,7 @@ export class PublishService {
       return { success: false, error: '内容不能为空' }
     }
 
-    const result = await adapter.publish(platformAccount.accessToken, {
+    const result = await adapter.publish(accessToken, {
       text: publishText,
     })
 
@@ -188,6 +292,21 @@ export class PublishService {
       platformPostId: result.platformPostId,
       publishedUrl: result.publishedUrl,
       message: '内容已成功发布到微博',
+    }
+  }
+
+  /** 旧版 POST /api/publish（contentId + platformIds）占位，避免调用方与类型断裂 */
+  static async publishContent(_body: Record<string, unknown>): Promise<{
+    results: UnifiedPublishResult[]
+  }> {
+    return {
+      results: [
+        {
+          success: false,
+          error:
+            '聚合发布尚未实现：请使用 /api/platforms/wechat 或 /api/platforms/weibo 下的发布接口',
+        },
+      ],
     }
   }
 }

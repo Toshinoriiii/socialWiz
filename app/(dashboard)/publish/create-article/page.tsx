@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { Save, Eye, FileText, Loader2, Image as ImageIcon, X, Upload } from 'lucide-react'
+import { Save, Eye, FileText, Loader2, X, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { useUserStore } from '@/store/user.store'
 import '@uiw/react-md-editor/markdown-editor.css'
@@ -27,7 +27,6 @@ export default function CreateArticlePage() {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [coverImage, setCoverImage] = useState('')
-  const [coverImageUrl, setCoverImageUrl] = useState('')
   const [coverUploading, setCoverUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -48,7 +47,9 @@ export default function CreateArticlePage() {
           const data = JSON.parse(aiContent)
           setTitle(data.title || '')
           setContent(data.content || '')
-          setCoverImage(data.coverImage || '')
+          const imgs = Array.isArray(data.images) ? data.images : []
+          const fromCover = typeof data.coverImage === 'string' ? data.coverImage.trim() : ''
+          setCoverImage(fromCover || (typeof imgs[0] === 'string' ? imgs[0].trim() : '') || '')
           // 清除 sessionStorage，避免重复加载
           sessionStorage.removeItem('ai-generated-content')
         } catch (error) {
@@ -158,13 +159,7 @@ export default function CreateArticlePage() {
 
       if (response.ok) {
         toast.success(draftId ? '草稿已更新' : '草稿已保存')
-        // 如果是新创建的草稿，更新URL以支持继续编辑，并移除 from=ai 参数
-        if (!draftId && data.draft?.id) {
-          router.replace(`/publish/create-article?id=${data.draft.id}`)
-        } else if (fromAi) {
-          // 如果是从 AI 生成跳转过来的，保存后移除 from=ai 参数
-          router.replace(`/publish/create-article?id=${draftId || data.draft?.id}`)
-        }
+        router.push('/publish/works')
       } else {
         toast.error(data.error || '保存失败')
       }
@@ -181,14 +176,6 @@ export default function CreateArticlePage() {
       setPreviewMode('edit')
     } else {
       setPreviewMode('preview')
-    }
-  }
-
-  const handleSetCoverFromUrl = () => {
-    if (coverImageUrl.trim()) {
-      setCoverImage(coverImageUrl.trim())
-      setCoverImageUrl('')
-      toast.success('封面图已设置')
     }
   }
 
@@ -337,25 +324,6 @@ export default function CreateArticlePage() {
                       </>
                     )}
                   </label>
-                </div>
-                {/* 或输入 URL */}
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500 shrink-0">或输入图片链接</span>
-                  <Input 
-                    placeholder="输入图片 URL" 
-                    value={coverImageUrl}
-                    onChange={(e) => setCoverImageUrl(e.target.value)}
-                    className="bg-white border-gray-300 text-black flex-1"
-                  />
-                  <Button 
-                    onClick={handleSetCoverFromUrl}
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 border-gray-300 text-black hover:bg-gray-100"
-                  >
-                    <ImageIcon className="size-4 mr-1" />
-                    设置
-                  </Button>
                 </div>
               </div>
             )}

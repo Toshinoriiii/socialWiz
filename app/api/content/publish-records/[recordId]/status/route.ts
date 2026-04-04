@@ -1,15 +1,22 @@
-/**
- * 查询单条发布记录的状态
+﻿/**
+ * 查询发布状态（按作品聚合）
  * GET /api/content/publish-records/[recordId]/status
- * 
- * 微信公众号：调用 freepublish/get 获取发布状态和文章链接
- * 微博等：返回已存储的信息
+ *
+ * recordId 为任一 ContentPlatform 记录 ID；返回该作品下所有 SUCCESS 的平台行：
+ * 平台名、账号、文章链接；微信行会按需请求 freepublish/get。
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { AuthService } from '@/lib/services/auth.service'
 import { WechatTokenService } from '@/lib/services/wechat-token.service'
 import { prisma } from '@/lib/db/prisma'
+
+const PLATFORM_NAMES: Record<string, string> = {
+  WECHAT: '微信公众号',
+  WEIBO: '微博',
+  DOUYIN: '抖音',
+  XIAOHONGSHU: '小红书',
+}
 
 const WECHAT_STATUS_MAP: Record<number, string> = {
   0: '发布成功',
@@ -21,13 +28,83 @@ const WECHAT_STATUS_MAP: Record<number, string> = {
   6: '成功后系统封禁所有文章',
 }
 
-export async function GET(
+type PublishStatusPlatformRow = {
+  recordId: string
+  platform: string
+  platformName: string
+  accountName: string
+  statusText: string
+  publishedUrl: string | null
+  publishId?: string | null
+  /** 微信 publish_status 原始值 */
+  wechatPublishStatus?: number
+}
+
+async function resolveWechatRow (
+  userId: string,
+  wechatConfigId: string,
+  platformContentId: string | null,
+  storedUrl: string | null
+): Promise<Pick<PublishStatusPlatformRow, 'statusText' | 'publishedUrl' | 'publishId' | 'wechatPublishStatus'>> {
+  if (!platformContentId) {
+    return {
+      statusText: '发布成功',
+      publishedUrl: storedUrl,
+      publishId: null
+    }
+  }
+  const tokenService = new WechatTokenService()
+  const accessToken = await tokenService.getOrRefreshToken(userId, wechatConfigId)
+  if (!accessToken) {
+    return {
+      statusText: '获取凭证失败',
+      publishedUrl: storedUrl,
+      publishId: platformContentId
+    }
+  }
+
+  const getUrl = `https://api.weixin.qq.com/cgi-bin/freepublish/get?access_token=${accessToken}`
+  const publishIdNum = parseInt(String(platformContentId), 10)
+  const res = await fetch(getUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ publish_id: publishIdNum }),
+  })
+  const data = (await res.json()) as {
+    errcode?: number
+    errmsg?: string
+    publish_status?: number
+    article_detail?: { item?: Array<{ article_url?: string }> }
+  }
+
+  if (data.errcode && data.errcode !== 0) {
+    return {
+      statusText: data.errmsg || '查询失败',
+      publishedUrl: storedUrl,
+      publishId: platformContentId
+    }
+  }
+
+  const status = data.publish_status ?? -1
+  const articleUrl =
+    data.article_detail?.item?.[0]?.article_url || storedUrl
+  const statusText = WECHAT_STATUS_MAP[status] || `状态 ${status}`
+  return {
+    statusText,
+    publishedUrl: articleUrl,
+    publishId: platformContentId,
+    wechatPublishStatus: status
+  }
+}
+
+export async function GET (
   request: NextRequest,
   { params }: { params: Promise<{ recordId: string }> }
 ) {
   try {
-    const token = request.headers.get('authorization')?.replace('Bearer ', '') ||
-                  request.cookies.get('token')?.value
+    const token =
+      request.headers.get('authorization')?.replace('Bearer ', '') ||
+      request.cookies.get('token')?.value
 
     if (!token) {
       return NextResponse.json({ error: '未授权' }, { status: 401 })
@@ -40,82 +117,89 @@ export async function GET(
 
     const { recordId } = await params
 
-    const record = await prisma.contentPlatform.findFirst({
+    const anchor = await prisma.contentPlatform.findFirst({
       where: {
         id: recordId,
         content: { userId: user.id },
       },
       include: {
-        content: { select: { title: true } },
-        wechatConfig: true,
+        content: { select: { id: true, title: true } },
       },
     })
 
-    if (!record) {
+    if (!anchor || !anchor.content) {
       return NextResponse.json({ error: '发布记录不存在' }, { status: 404 })
     }
 
-    // 微信公众号：调用 freepublish/get 查询
-    if (record.wechatConfigId && record.platformContentId) {
-      const tokenService = new WechatTokenService()
-      const accessToken = await tokenService.getOrRefreshToken(user.id, record.wechatConfigId)
-      if (!accessToken) {
-        return NextResponse.json({
-          platform: 'WECHAT',
-          statusText: '获取凭证失败',
-          publishedUrl: record.publishedUrl,
-        })
-      }
+    const rows = await prisma.contentPlatform.findMany({
+      where: {
+        contentId: anchor.contentId,
+        publishStatus: 'SUCCESS',
+        content: { userId: user.id },
+      },
+      include: {
+        wechatConfig: {
+          select: { accountName: true, appId: true },
+        },
+        platformAccount: {
+          select: { platformUsername: true, platform: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    })
 
-      const getUrl = `https://api.weixin.qq.com/cgi-bin/freepublish/get?access_token=${accessToken}`
-      const publishIdNum = parseInt(String(record.platformContentId), 10)
-      const res = await fetch(getUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ publish_id: publishIdNum }),
+    const platforms: PublishStatusPlatformRow[] = await Promise.all(
+      rows.map(async (r) => {
+        const platform = r.wechatConfigId
+          ? 'WECHAT'
+          : r.platformAccount?.platform ?? 'UNKNOWN'
+        const accountName =
+          r.wechatConfig?.accountName ||
+          r.wechatConfig?.appId ||
+          r.platformAccount?.platformUsername ||
+          '-'
+
+        if (r.wechatConfigId) {
+          const w = await resolveWechatRow(
+            user.id,
+            r.wechatConfigId,
+            r.platformContentId,
+            r.publishedUrl
+          )
+          return {
+            recordId: r.id,
+            platform,
+            platformName: PLATFORM_NAMES[platform] || platform,
+            accountName,
+            statusText: w.statusText,
+            publishedUrl: w.publishedUrl,
+            publishId: w.publishId ?? r.platformContentId,
+            wechatPublishStatus: w.wechatPublishStatus,
+          }
+        }
+
+        return {
+          recordId: r.id,
+          platform,
+          platformName: PLATFORM_NAMES[platform] || platform,
+          accountName,
+          statusText:
+            r.publishStatus === 'SUCCESS'
+              ? '发布成功'
+              : String(r.publishStatus),
+          publishedUrl: r.publishedUrl,
+          publishId: r.platformContentId,
+        }
       })
-      const data = (await res.json()) as {
-        errcode?: number
-        errmsg?: string
-        publish_status?: number
-        article_detail?: { item?: Array<{ article_url?: string }> }
-      }
+    )
 
-      if (data.errcode && data.errcode !== 0) {
-        return NextResponse.json({
-          platform: 'WECHAT',
-          statusText: data.errmsg || '查询失败',
-          publishedUrl: record.publishedUrl,
-        })
-      }
-
-      const status = data.publish_status ?? -1
-      const articleUrl = data.article_detail?.item?.[0]?.article_url || record.publishedUrl
-      const statusText = WECHAT_STATUS_MAP[status] || `状态 ${status}`
-
-      // 若获取到新链接且数据库未存，可异步更新（此处仅返回）
-      return NextResponse.json({
-        platform: 'WECHAT',
-        publishId: record.platformContentId,
-        status,
-        statusText,
-        publishedUrl: articleUrl,
-        title: record.content?.title,
-      })
-    }
-
-    // 微博等：返回已存储信息
     return NextResponse.json({
-      platform: record.platformAccountId ? 'WEIBO' : 'UNKNOWN',
-      statusText: record.publishStatus === 'SUCCESS' ? '发布成功' : record.publishStatus,
-      publishedUrl: record.publishedUrl,
-      title: record.content?.title,
+      title: anchor.content.title,
+      contentId: anchor.contentId,
+      platforms,
     })
   } catch (error) {
     console.error('查询发布状态失败:', error)
-    return NextResponse.json(
-      { error: '服务器错误' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: '服务器错误' }, { status: 500 })
   }
 }

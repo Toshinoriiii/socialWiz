@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Markdown 转 HTML
  * 用于微信公众号等仅支持 HTML 的平台，将编辑器中的 Markdown 转为可读的 HTML
  */
@@ -39,4 +39,29 @@ export function toPlainText(htmlOrMarkdown: string, maxLength = 120): string {
     .replace(/\s+/g, ' ')
     .trim()
   return text.length > maxLength ? text.slice(0, maxLength) : text
+}
+
+/**
+ * Markdown/混合内容 → 适合微博「长微博/信息流」的纯文本（非头条文章 HTML 编辑器）。
+ */
+export function markdownToPlainForWeiboFeed (
+  markdown: string,
+  maxLen = 20_000
+): string {
+  const trimmed = markdown?.trim() ?? ''
+  if (!trimmed) return ''
+  const html = markdownToHtml(trimmed)
+  let text = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|blockquote|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (text.length > maxLen) text = text.slice(0, maxLen)
+  return text
 }

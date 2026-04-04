@@ -1,1 +1,2 @@
-﻿export { WechatConfigFields } from './WechatConfigFields'
+export { WechatConfigFields } from './WechatConfigFields'
+export { WeiboConfigFields } from './WeiboConfigFields'

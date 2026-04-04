@@ -21,6 +21,9 @@ import { prisma } from '@/lib/db/prisma'
 import { PublishService } from '@/lib/services/publish.service'
 import { convertToJpegForWechat, createDefaultWechatCover } from '@/lib/utils/image-convert'
 
+export const runtime = 'nodejs'
+export const maxDuration = 120
+
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
 
 function getUserIdFromRequest(request: NextRequest): string | null {
@@ -133,6 +136,7 @@ export async function POST(request: NextRequest) {
       userId,
       platform: platform as Platform,
       accountId,
+      contentId,
       publishConfigId,
       title: title.trim(),
       content: content.trim(),
@@ -147,9 +151,31 @@ export async function POST(request: NextRequest) {
           error: 'Publish failed',
           success: false,
           details: result.error,
+          jobId: result.jobId,
+          requiresJobPolling: result.requiresJobPolling,
         },
         { status }
       )
+    }
+
+    /**
+     * 微博浏览器会话：`PublishService` 已在本次请求内同步跑完 `NonOfficialPublishService`，
+     * 其中已将 `ContentPlatform` 标为 SUCCESS。若在此再写 PENDING，发布记录 API（只列 SUCCESS）
+     * 会看不到微博发文，与用户在微博端已见帖矛盾。
+     */
+    if (result.requiresJobPolling && platform === Platform.WEIBO) {
+      return NextResponse.json({
+        success: true,
+        jobId: result.jobId,
+        status: 'SUCCESS',
+        requiresJobPolling: true,
+        message: result.message,
+        platformPostId: result.platformPostId,
+        publishedUrl: result.publishedUrl,
+        ...(result.postInsights != null
+          ? { postInsights: result.postInsights }
+          : {}),
+      })
     }
 
     // 发布成功：更新作品状态为已发布，创建发布记录

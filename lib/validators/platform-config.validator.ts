@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 平台发布配置验证器
  * Feature: 006-platform-publish-config
  * 
@@ -41,14 +41,37 @@ export const WechatConfigDataSchema = z.object({
   onlyFansCanComment: z.boolean().optional().default(false)
 })
 
+const weiboVisibility = z.enum(['public', 'friends', 'self'])
+const weiboMblogStatement = z.enum(['0', '1', '2', '3'])
+
 /**
  * 微博配置数据验证
  */
 export const WeiboConfigDataSchema = z.object({
   type: z.literal('weibo'),
-  visibility: z.enum(['public', 'friends', 'self']).default('public'),
-  allowComment: z.boolean().default(true),
-  allowRepost: z.boolean().default(true)
+  articleColumnName: z
+    .string()
+    .max(120, '专栏名称过长')
+    .optional()
+    .or(z.literal('')),
+  articleFollowersOnlyFullText: z.boolean().optional().default(true),
+  articleVisibility: weiboVisibility.optional().default('public'),
+  articleContentDeclaration: weiboMblogStatement.optional().default('0'),
+  articleWeiboStatusText: z
+    .string()
+    .max(2000, '微博动态文案过长')
+    .optional()
+    .or(z.literal('')),
+  imageTextLocation: z
+    .string()
+    .max(200, '地点过长')
+    .optional()
+    .or(z.literal('')),
+  imageTextVisibility: weiboVisibility.optional().default('public'),
+  imageTextContentDeclaration: weiboMblogStatement.optional().default('0'),
+  visibility: weiboVisibility.optional(),
+  allowComment: z.boolean().optional(),
+  allowRepost: z.boolean().optional()
 })
 
 /**

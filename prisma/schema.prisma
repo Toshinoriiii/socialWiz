@@ -19,30 +19,75 @@ model User {
   contents                Content[]
   platformAccounts        PlatformAccount[]
   wechatConfigs           WechatAccountConfig[]
+  weiboAppConfigs         WeiboAppConfig[]
   platformPublishConfigs  PlatformPublishConfig[]
   contentRequests         ContentGenerationRequest[]
+  publishJobs             PublishJob[]
 
   @@index([email])
 }
 
 model PlatformAccount {
-  id               String            @id @default(uuid())
-  userId           String
-  platform         Platform
-  platformUserId   String
-  platformUsername String
-  accessToken      String
-  refreshToken     String?
-  tokenExpiry      DateTime?
-  isConnected      Boolean           @default(true)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  analytics        Analytics[]
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  contentPlatforms ContentPlatform[]
+  id                 String           @id @default(uuid())
+  userId             String
+  platform           Platform
+  platformUserId     String
+  platformUsername   String
+  accessToken        String
+  refreshToken       String?
+  tokenExpiry        DateTime?
+  isConnected        Boolean          @default(true)
+  weiboAppConfigId   String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  analytics          Analytics[]
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weiboAppConfig     WeiboAppConfig?  @relation(fields: [weiboAppConfigId], references: [id], onDelete: SetNull)
+  contentPlatforms   ContentPlatform[]
+  publishJobs        PublishJob[]
 
-  @@unique([userId, platform])
+  @@unique([userId, platform, platformUserId])
   @@index([userId])
+  @@index([weiboAppConfigId])
+}
+
+model PublishJob {
+  id                String           @id @default(uuid())
+  userId            String
+  platformAccountId String
+  contentId         String?
+  payload           Json
+  status            PublishJobStatus @default(QUEUED)
+  errorMessage      String?
+  platformPostId    String?
+  publishedUrl      String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformAccount   PlatformAccount  @relation(fields: [platformAccountId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([platformAccountId])
+  @@index([status])
+  @@map("publish_jobs")
+}
+
+model WeiboAppConfig {
+  id                String            @id @default(uuid())
+  userId            String
+  appId             String
+  appSecret         String
+  appName           String?
+  callbackUrl       String
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformAccounts  PlatformAccount[]
+
+  @@unique([userId, appId])
+  @@index([userId])
+  @@map("weibo_app_configs")
 }
 
 model Content {
@@ -176,6 +221,13 @@ enum ContentStatus {
 
 enum PublishStatus {
   PENDING
+  SUCCESS
+  FAILED
+}
+
+enum PublishJobStatus {
+  QUEUED
+  RUNNING
   SUCCESS
   FAILED
 }

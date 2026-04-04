@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { MessageCircle, MessageSquare, Instagram, Link as LinkIcon, Unlink, Plus, AlertCircle, CheckCircle, Inbox } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { MessageCircle, Link as LinkIcon, Unlink, Plus, AlertCircle, CheckCircle, Inbox } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Separator } from '@/components/ui/separator'
@@ -29,6 +29,9 @@ import { useUserStore } from '@/store/user.store'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import WechatConfigGuide from '@/components/dashboard/platforms/WechatConfigGuide'
+import { PlatformBrandLogo } from '@/components/dashboard/PlatformBrandLogo'
+import { isWeiboOauthUiEnabled } from '@/config/feature-flags'
+import { Platform } from '@/types/platform.types'
 
 interface PlatformAccount {
   id: string
@@ -45,42 +48,35 @@ interface PlatformAccount {
   canPublish?: boolean
 }
 
-const platformConfig = [
-  { 
-    id: 'WECHAT', 
-    name: '微信公众号', 
-    icon: <MessageCircle className="size-5" />,
-    color: 'text-green-600',
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
+const platformConfig: Array<{
+  id: string
+  platform: Platform
+  name: string
+  authPath: string | null
+}> = [
+  {
+    id: 'WECHAT',
+    platform: Platform.WECHAT,
+    name: '微信公众号',
     authPath: '/api/platforms/wechat/auth'
   },
-  { 
-    id: 'WEIBO', 
-    name: '微博', 
-    icon: <MessageSquare className="size-5" />,
-    color: 'text-red-600',
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
+  {
+    id: 'WEIBO',
+    platform: Platform.WEIBO,
+    name: '微博',
     authPath: '/api/platforms/weibo/auth'
   },
-  { 
-    id: 'DOUYIN', 
-    name: '抖音', 
-    icon: <Instagram className="size-5" />,
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-50',
-    borderColor: 'border-purple-200',
-    authPath: null // 暂未实现
+  {
+    id: 'DOUYIN',
+    platform: Platform.DOUYIN,
+    name: '抖音',
+    authPath: null
   },
-  { 
-    id: 'XIAOHONGSHU', 
-    name: '小红书', 
-    icon: <Instagram className="size-5" />,
-    color: 'text-pink-600',
-    bgColor: 'bg-pink-50',
-    borderColor: 'border-pink-200',
-    authPath: null // 暂未实现
+  {
+    id: 'XIAOHONGSHU',
+    platform: Platform.XIAOHONGSHU,
+    name: '小红书',
+    authPath: null
   }
 ]
 
@@ -105,12 +101,12 @@ export default function AccountsPage() {
   })
   const [submitting, setSubmitting] = useState(false)
 
-  // 加载已绑定的账号
-  useEffect(() => {
-    if (token) {
-      loadAccounts()
-    }
-  }, [token])
+  const [weiboBindOpen, setWeiboBindOpen] = useState(false)
+  const [weiboPlaywrightPolling, setWeiboPlaywrightPolling] = useState(false)
+  /** 本轮绑定：是否曾出现 inProgress（锁存在）；用于区分「尚未开始」与「已结束未绑定」 */
+  const weiboSawInProgressRef = useRef(false)
+  /** 本轮开始轮询的时间戳；用于用户极快关掉窗口时尚未拉到 inProgress 的兜底 */
+  const weiboBindStartedAtRef = useRef(0)
 
   const loadAccounts = async () => {
     if (!token) return
@@ -166,6 +162,133 @@ export default function AccountsPage() {
     }
   }
 
+  useEffect(() => {
+    if (token) {
+      loadAccounts()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
+  const startWeiboBind = () => {
+    setPlatformSelectOpen(false)
+    setWeiboBindOpen(true)
+  }
+
+  const startWeiboOAuthFlow = async () => {
+    if (!token) {
+      toast.error('未登录')
+      return
+    }
+    if (accounts.some((a) => a.platform === 'WEIBO')) {
+      toast.error('已绑定微博，请先解绑后再使用开放平台授权')
+      return
+    }
+    setWeiboBindOpen(false)
+    try {
+      setConnecting('WEIBO')
+      const response = await fetch('/api/platforms/weibo/auth', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await response.json()
+      if (response.ok && data.authUrl) {
+        window.location.href = data.authUrl
+      } else {
+        toast.error(data.error || '获取授权链接失败')
+      }
+    } catch {
+      toast.error('网络错误，请重试')
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  const startWeiboPlaywrightBind = async () => {
+    if (!token) {
+      toast.error('未登录')
+      return
+    }
+    try {
+      setConnecting('WEIBO')
+      const r = await fetch('/api/platforms/weibo/playwright-bind', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await r.json()
+      if (!r.ok) {
+        const extra = [data.detail, data.hint].filter(Boolean).join('\n')
+        toast.error(
+          extra ? `${data.error || '启动失败'}\n${extra}` : data.error || '启动失败'
+        )
+        return
+      }
+      if (data.started === false) {
+        toast.warning(
+          data.message ||
+            '检测到已有进行中的绑定；若实际上没有登录窗口，请到项目 sessions 目录删除对应 .binding.lock 后重试。'
+        )
+        return
+      }
+      toast.message(data.message || '请在弹出的浏览器中登录微博')
+      weiboBindStartedAtRef.current = Date.now()
+      weiboSawInProgressRef.current = false
+      setWeiboPlaywrightPolling(true)
+    } catch (error) {
+      console.error(error)
+      toast.error('网络错误,请重试')
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!weiboPlaywrightPolling || !token) return
+
+    const finishCancelled = () => {
+      weiboSawInProgressRef.current = false
+      setWeiboPlaywrightPolling(false)
+      setWeiboBindOpen(false)
+      toast.message('登录窗口已关闭，绑定已取消')
+    }
+
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/platforms/weibo/playwright-bind', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const data = await r.json()
+        if (!r.ok) return
+
+        if (data.bound) {
+          weiboSawInProgressRef.current = false
+          toast.success('微博绑定成功')
+          setWeiboPlaywrightPolling(false)
+          setWeiboBindOpen(false)
+          void loadAccounts()
+          return
+        }
+
+        if (data.inProgress) {
+          weiboSawInProgressRef.current = true
+          return
+        }
+
+        // 未绑定且服务端已不再标记进行中：脚本退出（含用户关掉 Playwright 窗口）
+        const elapsed = Date.now() - weiboBindStartedAtRef.current
+        const definitelyEnded =
+          weiboSawInProgressRef.current || elapsed > 5000
+        if (definitelyEnded) {
+          finishCancelled()
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    void tick()
+    const id = window.setInterval(() => void tick(), 2000)
+    return () => window.clearInterval(id)
+  }, [weiboPlaywrightPolling, token])
+
   // 连接平台账号
   const handleConnect = async (platformId: string) => {
     const platform = platformConfig.find(p => p.id === platformId)
@@ -175,6 +298,11 @@ export default function AccountsPage() {
     if (platformId === 'WECHAT') {
       setPlatformSelectOpen(false)
       setWechatConfigOpen(true)
+      return
+    }
+
+    if (platformId === 'WEIBO') {
+      startWeiboBind()
       return
     }
 
@@ -322,11 +450,16 @@ export default function AccountsPage() {
     return accounts.find(acc => acc.platform === platformId)
   }
 
+  const hasBoundPlatform = (platformId: string) =>
+    accounts.some((a) => a.platform === platformId)
+
   return (
     <div className="max-w-4xl mx-auto space-y-4 md:space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-black mb-2">账号管理</h1>
-        <p className="text-gray-600">管理您的社交媒体账号绑定</p>
+        <p className="text-gray-600">
+          管理您的社交媒体账号绑定。当前<strong>每个平台仅支持绑定一个账号</strong>；换绑请先解绑。
+        </p>
       </div>
 
       {/* 空状态 - 没有绑定任何账号时显示 */}
@@ -388,9 +521,11 @@ export default function AccountsPage() {
                     <CardContent className="pt-6">
                       {/* 平台图标和状态 */}
                       <div className="flex items-start justify-between mb-4">
-                        <div className={`w-12 h-12 rounded-lg ${platform.bgColor} ${platform.borderColor} border-2 flex items-center justify-center ${platform.color} shrink-0`}>
-                          {platform.icon}
-                        </div>
+                        <PlatformBrandLogo
+                          platform={platform.platform}
+                          size={36}
+                          tileClassName="bg-neutral-100 dark:bg-neutral-800"
+                        />
                         {account.isConnected && (
                           needsReauth ? (
                             <Badge variant="outline" className="text-xs border-yellow-300 text-yellow-700 bg-yellow-50">
@@ -483,7 +618,7 @@ export default function AccountsPage() {
       <Alert className="border-blue-200 bg-blue-50">
         <AlertCircle className="size-4 text-blue-600" />
         <AlertDescription className="text-blue-800 text-sm">
-          <strong>提示：</strong>连接社交媒体账号后,您就可以在发布管理中将内容发布到对应平台。部分平台可能需要您前往其开放平台申请应用凭证。
+          <strong>提示：</strong>每个平台仅一个绑定。连接后可在发布流程中选号发文。微博主路径为<strong>本机浏览器登录</strong>；OAuth 仅在开启「开放平台授权」时使用，且与浏览器绑定互斥。
         </AlertDescription>
       </Alert>
 
@@ -493,43 +628,112 @@ export default function AccountsPage() {
           <DialogHeader>
             <DialogTitle className="text-black">选择要连接的平台</DialogTitle>
             <DialogDescription className="text-gray-600">
-              选择您要连接的社交媒体平台
+              选择平台。已绑定的平台需先解绑才能换绑。
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-4">
             {platformConfig.map((platform) => {
-              const account = getAccountByPlatform(platform.id)
-              const isConnected = account?.isConnected || false
+              const isWeibo = platform.id === 'WEIBO'
+              const bound = hasBoundPlatform(platform.id)
+              const comingSoon =
+                platform.id !== 'WECHAT' &&
+                platform.id !== 'WEIBO' &&
+                !platform.authPath
+              const rowDisabled =
+                connecting === platform.id || comingSoon || bound
 
               return (
                 <button
                   key={platform.id}
-                  onClick={() => !isConnected && handleConnect(platform.id)}
-                  disabled={isConnected || connecting === platform.id}
+                  type="button"
+                  onClick={() => {
+                    if (rowDisabled) return
+                    if (isWeibo) {
+                      setPlatformSelectOpen(false)
+                      setWeiboBindOpen(true)
+                      void startWeiboPlaywrightBind()
+                      return
+                    }
+                    handleConnect(platform.id)
+                  }}
+                  disabled={rowDisabled}
                   className={`flex items-center gap-4 p-4 rounded-lg border-2 transition-all duration-150 text-left ${
-                    isConnected
+                    rowDisabled
                       ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
                       : 'border-gray-300 hover:border-black hover:bg-gray-50 cursor-pointer active:scale-[0.98]'
                   }`}
                 >
-                  <div className={`w-12 h-12 rounded-lg ${platform.bgColor} ${platform.borderColor} border-2 flex items-center justify-center ${platform.color} shrink-0`}>
-                    {platform.icon}
-                  </div>
+                  <PlatformBrandLogo
+                    platform={platform.platform}
+                    size={36}
+                    tileClassName="bg-neutral-100 dark:bg-neutral-800"
+                  />
                   <div className="flex-1">
                     <div className="font-semibold text-black mb-1">{platform.name}</div>
                     <div className="text-xs text-gray-500">
-                      {isConnected ? '已连接' : platform.authPath || platform.id === 'WECHAT' ? '点击连接' : '即将开放'}
+                      {bound
+                        ? '已通过账号管理绑定，请先解绑再换绑'
+                        : isWeibo
+                          ? '本机浏览器登录（主路径）'
+                          : platform.authPath || platform.id === 'WECHAT'
+                            ? '点击连接'
+                            : '即将开放'}
                     </div>
                   </div>
-                  {isConnected && (
+                  {bound && (
                     <Badge variant="outline" className="text-xs border-green-300 text-green-700 bg-green-50">
                       <CheckCircle className="size-3 mr-1" />
-                      已连接
+                      已绑定
                     </Badge>
                   )}
                 </button>
               )
             })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 微博绑定：本机 Playwright 浏览器登录 */}
+      <Dialog
+        open={weiboBindOpen}
+        onOpenChange={(open) => {
+          setWeiboBindOpen(open)
+          if (!open) {
+            weiboSawInProgressRef.current = false
+            setWeiboPlaywrightPolling(false)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px] bg-white border border-gray-300">
+          <DialogHeader>
+            <DialogTitle className="text-black">绑定微博账号</DialogTitle>
+            <DialogDescription className="text-gray-600">
+              请在随后弹出的窗口中完成微博登录。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Button
+              className="w-full bg-red-600 text-white hover:bg-red-700"
+              onClick={() => void startWeiboPlaywrightBind()}
+              disabled={connecting === 'WEIBO' || weiboPlaywrightPolling}
+            >
+              {weiboPlaywrightPolling
+                ? '等待登录中…'
+                : connecting === 'WEIBO'
+                  ? '启动中…'
+                  : '连接微博（本机浏览器）'}
+            </Button>
+            {isWeiboOauthUiEnabled() && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-gray-300"
+                onClick={() => void startWeiboOAuthFlow()}
+                disabled={connecting === 'WEIBO'}
+              >
+                使用微博开放平台授权（高级）
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

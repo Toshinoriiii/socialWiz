@@ -40,6 +40,8 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformInfo> = {
       scope: 'snsapi_userinfo'
     }
   },
+  // 非密钥配置：OAuth 入口 URL、字数限制等。App Key/Secret 来自环境变量（开发/单租户）
+  // 或用户维度 WeiboAppConfig（多租户，见 lib/services/weibo-app-config.service.ts）
   [Platform.WEIBO]: {
     id: Platform.WEIBO,
     name: '微博',
@@ -111,9 +113,12 @@ export function validatePlatformConfig(platform: Platform): { valid: boolean; mi
       if (!process.env.WECHAT_REDIRECT_URI) missing.push('WECHAT_REDIRECT_URI')
       break
     case Platform.WEIBO:
-      if (!process.env.WEIBO_APP_KEY) missing.push('WEIBO_APP_KEY')
-      if (!process.env.WEIBO_APP_SECRET) missing.push('WEIBO_APP_SECRET')
-      if (!process.env.WEIBO_REDIRECT_URI) missing.push('WEIBO_REDIRECT_URI')
+      // 生产环境可使用数据库中的 WeiboAppConfig，不强制环境变量；开发机无配置时再补全 WEIBO_*
+      if (process.env.REQUIRE_WEIBO_ENV === '1') {
+        if (!process.env.WEIBO_APP_KEY) missing.push('WEIBO_APP_KEY')
+        if (!process.env.WEIBO_APP_SECRET) missing.push('WEIBO_APP_SECRET')
+        if (!process.env.WEIBO_REDIRECT_URI) missing.push('WEIBO_REDIRECT_URI')
+      }
       break
     // 其他平台暂不验证
   }

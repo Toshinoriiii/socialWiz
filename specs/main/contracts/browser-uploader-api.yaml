@@ -1,0 +1,96 @@
+openapi: 3.0.3
+info:
+  title: SocialWiz — 浏览器会话 Uploader API
+  description: |
+    无官方开放平台 API 时的绑定与发布契约：通过 Playwright 子进程采集会话并驱动浏览器发帖（或插件内 HTTP 复现）。
+    **产品主路径**（`specs/main/spec.md`）：用户仅在站内「发布」；经 **统一 POST /api/platforms/publish** 与 **PublishJob**，详见同目录 `publish-job-api.yaml`（`GET /api/platforms/publish/jobs/{jobId}`）。
+    **v1** 以微博路径为参考实现：`playwright-bind`（会话采集）+ 发布由插件内 **HTTP 复现**（`compose-runner`）；后续平台可复用相同语义。
+    浏览器会话账号不得误走开放平台 token 型 `publish` 实现。
+  version: "1.0.0"
+
+tags:
+  - name: BrowserUploaderWeibo
+    description: 微博 Playwright 参考实现
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/platforms/weibo/playwright-bind:
+    get:
+      tags: [BrowserUploaderWeibo]
+      summary: 查询当前用户 Playwright 绑定与会话状态
+      description: 若会话文件存在则同步 `PlatformAccount` 供列表展示。
+      operationId: getWeiboPlaywrightBindStatus
+      responses:
+        "200":
+          description: 状态（实现定义具体 schema，含 bound / pending / error 等）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: 子进程或 DB 异常
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+    post:
+      tags: [BrowserUploaderWeibo]
+      summary: 启动本机子进程采集微博网页登录会话
+      operationId: startWeiboPlaywrightBind
+      responses:
+        "202":
+          description: 已启动后台绑定流程
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  started:
+                    type: boolean
+                  message:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: 子进程立即失败等
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: 未授权
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    BadRequest:
+      description: 请求无效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
+        hint:
+          type: string

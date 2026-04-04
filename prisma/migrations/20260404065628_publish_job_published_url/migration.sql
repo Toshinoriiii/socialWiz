@@ -1,0 +1,1 @@
+ALTER TABLE "publish_jobs" ADD COLUMN IF NOT EXISTS "publishedUrl" TEXT;

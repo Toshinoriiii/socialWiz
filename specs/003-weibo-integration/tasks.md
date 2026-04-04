@@ -122,7 +122,7 @@
 - [X] T039 Add integration with existing PublishService error handling in `lib/services/publish.service.ts` (已集成错误处理)
 - [X] T040 [P] Add JSDoc comments to all public methods in `lib/platforms/weibo/weibo-adapter.ts` (已添加 JSDoc 注释)
 - [ ] T041 [P] Create README documentation in `lib/platforms/weibo/README.md` - usage examples, API reference (可选文档)
-- [X] T042 Run quickstart.md validation - test all scenarios from quickstart.md (已创建测试页面 `/dashboard/test-weibo` 用于测试)
+- [X] T042 Run quickstart.md validation - 验证场景已迁移至 **`specs/main/quickstart.md`**，在 **`/accounts`** 与统一发布流程中完成（原独立测试页已移除）
 - [X] T043 Code review and Constitution compliance check - verify Type-Safety First, Service Layer Architecture, Platform Agnostic Design (代码已通过类型检查)
 
 ---

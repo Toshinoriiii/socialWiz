@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -36,13 +36,27 @@ const PLATFORM_ICONS: Record<string, React.ElementType> = {
   WEIBO: MessageCircle,
 }
 
-interface StatusResult {
+interface PublishStatusPlatformRow {
+  recordId: string
   platform: string
+  platformName: string
+  accountName: string
   statusText: string
   publishedUrl?: string | null
-  title?: string | null
   publishId?: string | null
-  status?: number
+  wechatPublishStatus?: number
+}
+
+interface PublishStatusPayload {
+  title: string
+  contentId: string
+  platforms: PublishStatusPlatformRow[]
+}
+
+function platformBadgeClass (platform: string): string {
+  if (platform === 'WECHAT') return 'bg-green-100 text-green-700 border-green-200'
+  if (platform === 'WEIBO') return 'bg-orange-100 text-orange-700 border-orange-200'
+  return 'bg-neutral-100 text-neutral-700 border-neutral-200'
 }
 
 export default function PublishHistoryPage() {
@@ -53,7 +67,7 @@ export default function PublishHistoryPage() {
   const [statusDialog, setStatusDialog] = useState<{
     open: boolean
     record: PublishRecord | null
-    status: StatusResult | null
+    status: PublishStatusPayload | null
     loading: boolean
   }>({ open: false, record: null, status: null, loading: false })
   const [deleteRecord, setDeleteRecord] = useState<PublishRecord | null>(null)
@@ -246,79 +260,108 @@ export default function PublishHistoryPage() {
       </Card>
 
       <Dialog open={statusDialog.open} onOpenChange={(open) => setStatusDialog(prev => ({ ...prev, open }))}>
-        <DialogContent className="sm:max-w-md bg-white dark:bg-gray-950 border-gray-200 dark:border-gray-800 shadow-xl rounded-xl">
-          <DialogHeader className="pb-2">
-            <DialogTitle className="text-foreground text-lg">
-              {statusDialog.record?.title || '发布状态'}
+        <DialogContent className="flex max-h-[85vh] max-w-lg flex-col gap-0 overflow-hidden bg-white dark:bg-gray-950 sm:max-w-lg border-gray-200 dark:border-gray-800 shadow-xl rounded-xl">
+          <DialogHeader className="shrink-0 space-y-1 pb-3 pr-8">
+            <DialogTitle className="text-foreground text-lg leading-snug">
+              {statusDialog.status?.title ||
+                statusDialog.record?.title ||
+                '发布状态'}
             </DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              按发布平台列出对应账号与文章链接（同一作品可发布到多个平台）
+            </p>
           </DialogHeader>
-          <div className="py-1">
+          <div className="min-h-0 flex-1 overflow-hidden py-1">
             {statusDialog.loading ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-2.5 text-muted-foreground py-2">
                   <Loader2 className="size-5 animate-spin text-primary" />
-                  <span className="text-sm">查询中...</span>
+                  <span className="text-sm">正在查询各平台状态…</span>
                 </div>
-                {(statusDialog.record?.publishedUrl && (
-                  <a
-                    href={statusDialog.record.publishedUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-primary hover:underline text-sm rounded-lg bg-primary/5 px-3 py-2"
-                  >
-                    <ExternalLink className="size-4 shrink-0" />
-                    点击此处查看文章
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <div className="flex gap-4">
-                <div className="flex-1 min-w-0 space-y-4">
-                  {statusDialog.status?.statusText === '发布成功' && (
-                    <div className="flex items-center gap-2.5 rounded-lg bg-green-50 dark:bg-green-950/40 px-3 py-2.5 border border-green-200 dark:border-green-800">
-                      <CheckCircle2 className="size-5 shrink-0 text-green-600 dark:text-green-400" />
-                      <span className="text-sm font-medium text-green-700 dark:text-green-300">发布成功</span>
-                    </div>
-                  )}
-                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">平台</p>
-                    <div className="flex items-center gap-2">
-                      <MessageCircle className="size-4 text-muted-foreground shrink-0" />
-                      <p className="text-foreground font-medium text-sm">
-                        {statusDialog.status?.platform === 'WECHAT'
-                          ? '微信公众号'
-                          : statusDialog.status?.platform ?? statusDialog.record?.platformName ?? '-'}
-                      </p>
-                    </div>
-                  </div>
-                  {statusDialog.status && statusDialog.status.statusText !== '发布成功' && (
-                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground">发布状态</p>
-                      <p className="text-foreground font-medium text-sm">{statusDialog.status.statusText}</p>
-                    </div>
-                  )}
-                  {(statusDialog.status?.publishedUrl || statusDialog.record?.publishedUrl) && (
+                {statusDialog.record?.publishedUrl && (
+                  <p className="text-xs text-muted-foreground">
+                    查询完成后将显示该作品下所有平台的链接；当前条目链接也可先打开：{' '}
                     <a
-                      href={statusDialog.status?.publishedUrl || statusDialog.record?.publishedUrl || ''}
+                      href={statusDialog.record.publishedUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 text-primary hover:underline text-sm rounded-lg bg-primary/5 hover:bg-primary/10 px-3 py-2.5 transition-colors"
+                      className="text-primary underline underline-offset-2"
                     >
-                      <ExternalLink className="size-4 shrink-0" />
-                      点击此处查看文章
+                      打开
                     </a>
-                  )}
+                  </p>
+                )}
+              </div>
+            ) : statusDialog.status &&
+              statusDialog.status.platforms.length > 0 ? (
+              <div className="flex max-h-[min(60vh,28rem)] gap-4 overflow-hidden">
+                <div className="min-w-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                  {statusDialog.status.platforms.map((row) => {
+                    const Icon = PLATFORM_ICONS[row.platform] || FileText
+                    const ok = row.statusText === '发布成功'
+                    return (
+                      <div
+                        key={row.recordId}
+                        className="rounded-lg border border-border bg-muted/20 px-3 py-3 space-y-2.5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Badge
+                            variant="outline"
+                            className={`border font-normal gap-1 ${platformBadgeClass(row.platform)}`}
+                          >
+                            <Icon className="size-3" />
+                            {row.platformName}
+                          </Badge>
+                          {ok ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                              <CheckCircle2 className="size-3.5 shrink-0" />
+                              发布成功
+                            </span>
+                          ) : (
+                            <span className="text-xs text-amber-700 dark:text-amber-400">
+                              {row.statusText}
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            账号
+                          </p>
+                          <p className="text-sm font-medium text-foreground break-all">
+                            {row.accountName}
+                          </p>
+                        </div>
+                        {row.publishedUrl ? (
+                          <a
+                            href={row.publishedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-primary transition-colors hover:bg-muted/60"
+                          >
+                            <ExternalLink className="size-4 shrink-0" />
+                            查看该平台文章
+                          </a>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">暂无线上链接</p>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-                {statusDialog.record?.coverImage && (
-                  <div className="shrink-0">
+                {statusDialog.record?.coverImage ? (
+                  <div className="hidden shrink-0 sm:block">
                     <img
                       src={statusDialog.record.coverImage}
                       alt=""
-                      className="w-20 h-20 object-cover rounded-lg border border-border shadow-sm"
+                      className="size-24 object-cover rounded-lg border border-border shadow-sm"
                     />
                   </div>
-                )}
+                ) : null}
               </div>
+            ) : (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                暂无可展示的平台发布明细
+              </p>
             )}
           </div>
         </DialogContent>

@@ -1,4 +1,4 @@
-﻿# Dependencies
+# Dependencies
 node_modules/
 .pnp
 .pnp.js
@@ -60,7 +60,6 @@ cache/
 *.sqlite3
 
 # Prisma
-prisma/migrations/**/migration.sql
 # Prisma generated client (will be regenerated)
 node_modules/.prisma/
 node_modules/@prisma/
@@ -74,6 +73,10 @@ Thumbs.db
 *.temp
 .tmp/
 .temp/
+
+# 本地 Playwright 微博登录态（勿提交）
+scripts/weibo-playwright/.weibo-storage.json
+scripts/weibo-playwright/sessions/
 
 # Debug
 npm-debug.log*

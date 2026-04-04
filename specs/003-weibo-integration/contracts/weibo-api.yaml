@@ -2,8 +2,10 @@ openapi: 3.0.0
 info:
   title: Weibo Platform Integration API
   description: |
-    微博平台集成API接口定义
-    基于微博开放平台 OAuth 2.0 API
+    微博平台集成 API（本文件为 003 包历史契约，OAuth/开放平台路径仍以这里为参考）。
+    **浏览器会话绑定、统一发布、PublishJob** 等现行定义见 **`specs/main/contracts/`**
+   （`browser-uploader-api.yaml`、`publish-job-api.yaml`、`weibo-api.yaml`）。
+    会话型发博为站内 HTTP 复现（`compose-runner`），无独立 `playwright-compose` 路由。
   version: 1.0.0
 
 paths:

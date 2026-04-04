@@ -14,6 +14,41 @@ const PLATFORM_NAMES: Record<string, string> = {
   XIAOHONGSHU: '小红书',
 }
 
+/**
+ * 发布记录列表缩略图：封面优先，图文作品通常只有 images[] 无 coverImage。
+ */
+function pickContentThumbUrl (
+  coverImage: string | null | undefined,
+  images: string[] | null | undefined
+): string | null {
+  const cover = coverImage?.trim()
+  const firstImg = images
+    ?.map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .find((s) => s.length > 0)
+  const raw = cover || firstImg || null
+  if (!raw) return null
+  return normalizeMediaUrlForBrowser(raw)
+}
+
+/**
+ * `public/content-images` 若存成 http://127.0.0.1:3000/content-images/... ，
+ * 与当前浏览器域名不一致时会裂图；统一为站内相对路径。
+ */
+function normalizeMediaUrlForBrowser (raw: string): string {
+  const t = raw.trim()
+  if (!t) return t
+  if (t.startsWith('/')) return t
+  try {
+    const u = new URL(t)
+    if (u.pathname.startsWith('/content-images/')) {
+      return `${u.pathname}${u.search}${u.hash}`
+    }
+  } catch {
+    /* 非绝对 URL */
+  }
+  return t
+}
+
 export async function GET(request: NextRequest) {
   try {
     const token = request.headers.get('authorization')?.replace('Bearer ', '') ||
@@ -42,6 +77,7 @@ export async function GET(request: NextRequest) {
             title: true,
             content: true,
             coverImage: true,
+            images: true,
             publishedAt: true,
           },
         },
@@ -78,7 +114,10 @@ export async function GET(request: NextRequest) {
         accountName,
         title: r.content?.title || '未命名',
         contentPreview: r.content?.content?.slice(0, 200) || '',
-        coverImage: r.content?.coverImage,
+        coverImage: pickContentThumbUrl(
+          r.content?.coverImage,
+          r.content?.images
+        ),
         publishedUrl: r.publishedUrl,
         platformContentId: r.platformContentId,
         publishStatus: r.publishStatus,

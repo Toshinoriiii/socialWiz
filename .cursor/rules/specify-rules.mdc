@@ -1,0 +1,30 @@
+﻿# socialwiz Development Guidelines
+
+Auto-generated from all feature plans. Last updated: 2026-04-03
+
+## Active Technologies
+
+- TypeScript 5.9+、Node.js（与 Next.js 一致） + Next.js 14+ App Router、Prisma、Playwright（Chromium）、Zod (main)
+
+## Project Structure
+
+```text
+backend/
+frontend/
+tests/
+```
+
+## Commands
+
+npm test; npm run lint
+
+## Code Style
+
+TypeScript 5.9+、Node.js（与 Next.js 一致）: Follow standard conventions
+
+## Recent Changes
+
+- main: Added TypeScript 5.9+、Node.js（与 Next.js 一致） + Next.js 14+ App Router、Prisma、Playwright（Chromium）、Zod
+
+<!-- MANUAL ADDITIONS START -->
+<!-- MANUAL ADDITIONS END -->

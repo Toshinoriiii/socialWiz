@@ -77,6 +77,7 @@ export const redis = getRedisClient()
 export const cacheHelper = {
   // 设置缓存
   async set (key: string, value: any, ttl?: number): Promise<void> {
+    if (!redis) return
     const data = JSON.stringify(value)
     if (ttl) {
       await redis.setex(key, ttl, data)
@@ -87,6 +88,7 @@ export const cacheHelper = {
 
   // 获取缓存
   async get<T> (key: string): Promise<T | null> {
+    if (!redis) return null
     const data = await redis.get(key)
     if (!data) return null
     try {
@@ -98,11 +100,13 @@ export const cacheHelper = {
 
   // 删除缓存
   async del (key: string): Promise<void> {
+    if (!redis) return
     await redis.del(key)
   },
 
   // 批量删除
   async delPattern (pattern: string): Promise<void> {
+    if (!redis) return
     const keys = await redis.keys(pattern)
     if (keys.length > 0) {
       await redis.del(...keys)
@@ -111,11 +115,13 @@ export const cacheHelper = {
 
   // 检查缓存是否存在
   async exists (key: string): Promise<boolean> {
+    if (!redis) return false
     return (await redis.exists(key)) === 1
   },
 
   // 设置过期时间
   async expire (key: string, ttl: number): Promise<void> {
+    if (!redis) return
     await redis.expire(key, ttl)
   }
 }

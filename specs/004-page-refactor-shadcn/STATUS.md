@@ -3,7 +3,8 @@
 **Feature Branch**: `004-page-refactor-shadcn`  
 **Created**: 2025-01-13  
 **Completed**: 2025-01-13  
-**Status**: ✅ 已完成 (Completed)
+**最后核对**: 2026-04-04（与现行页面范围对齐，见 **`ARCHIVED.md`**）  
+**Status**: ✅ 已完成并归档 (Completed / Archived)
 
 ## 📊 总体进度
 
@@ -138,7 +139,7 @@
 
 ### 保留的文件（符合规范）
 
-- `app/(dashboard)/test-weibo/test-weibo.module.css` - 按规范要求保留
+- ~~`app/(dashboard)/test-weibo/…`~~ — **已删除**（2026-04）；产品验证在 accounts / publish 等页面完成
 - `app/(dashboard)/page.module.css` - 需要进一步确认用途
 
 ---
@@ -173,8 +174,7 @@
 
 ### 保留的例外
 
-1. **test-weibo 页面** - 按规范要求，此页面不进行重构，保留 CSS Modules
-2. **组件级别 CSS Modules** - 按规范要求，保留组件级别的 CSS Modules 文件
+1. **组件级别 CSS Modules** - 按规范要求，保留组件级别的 CSS Modules 文件
 
 ---
 

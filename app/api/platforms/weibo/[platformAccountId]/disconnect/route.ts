@@ -1,6 +1,12 @@
+import fs from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { AuthService } from '@/lib/services/auth.service'
+import {
+  getWeiboPlaywrightProfilePath,
+  getWeiboPlaywrightSessionPath,
+  isPlaywrightWeiboUserId
+} from '@/lib/weibo-playwright/session-files'
 
 /**
  * POST /api/platforms/weibo/[platformAccountId]/disconnect
@@ -8,7 +14,7 @@ import { AuthService } from '@/lib/services/auth.service'
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { platformAccountId: string } }
+  context: { params: Promise<{ platformAccountId: string }> }
 ) {
   try {
     // 验证用户身份
@@ -23,7 +29,7 @@ export async function POST(
     const token = authHeader.substring(7)
     const user = await AuthService.verifyToken(token)
 
-    const { platformAccountId } = params
+    const { platformAccountId } = await context.params
 
     // 查找平台账号
     const platformAccount = await prisma.platformAccount.findUnique({
@@ -45,16 +51,31 @@ export async function POST(
       )
     }
 
-    // 断开连接（清除 token，标记为未连接）
-    await prisma.platformAccount.update({
-      where: { id: platformAccountId },
-      data: {
-        accessToken: '',
-        refreshToken: null,
-        tokenExpiry: null,
-        isConnected: false
+    if (isPlaywrightWeiboUserId(platformAccount.platformUserId)) {
+      try {
+        fs.unlinkSync(getWeiboPlaywrightSessionPath(user.id))
+      } catch {
+        /* ignore */
       }
-    })
+      try {
+        fs.unlinkSync(getWeiboPlaywrightProfilePath(user.id))
+      } catch {
+        /* ignore */
+      }
+      await prisma.platformAccount.delete({
+        where: { id: platformAccountId }
+      })
+    } else {
+      await prisma.platformAccount.update({
+        where: { id: platformAccountId },
+        data: {
+          accessToken: '',
+          refreshToken: null,
+          tokenExpiry: null,
+          isConnected: false
+        }
+      })
+    }
 
     return NextResponse.json({
       success: true

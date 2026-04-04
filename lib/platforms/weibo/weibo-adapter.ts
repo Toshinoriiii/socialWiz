@@ -49,6 +49,16 @@ export class WeiboAdapter implements PlatformAdapter {
     this.client = new WeiboClient(config)
   }
 
+  /** 调用微博 oauth2/get_token_info 探测 token 是否仍有效 */
+  async probeAccessToken(accessToken: string): Promise<void> {
+    await this.client.getOauthTokenInfo(accessToken)
+  }
+
+  /** 单条微博详情（转发/评论/点赞等） */
+  async getStatusShow (accessToken: string, id: string): Promise<Record<string, unknown>> {
+    return this.client.getStatusShow(accessToken, id)
+  }
+
   /**
    * 获取授权 URL
    * 

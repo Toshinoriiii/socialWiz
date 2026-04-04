@@ -9,7 +9,7 @@ import { isTokenExpired } from '@/lib/platforms/wechat/wechat-utils'
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { platformAccountId: string } }
+  context: { params: Promise<{ platformAccountId: string }> }
 ) {
   try {
     // 验证用户身份
@@ -24,7 +24,7 @@ export async function GET(
     const token = authHeader.substring(7)
     const user = await AuthService.verifyToken(token)
 
-    const { platformAccountId } = params
+    const { platformAccountId } = await context.params
 
     // 查找平台账号
     const platformAccount = await prisma.platformAccount.findUnique({

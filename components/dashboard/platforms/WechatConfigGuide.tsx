@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useState, useEffect } from 'react'
 import { InfoCircleOutlined, CheckCircleOutlined, WarningOutlined, CopyOutlined } from '@ant-design/icons'
@@ -13,6 +13,9 @@ interface WechatConfigGuideProps {
    * 当棄用，不再显示顶部警告
    */
   showPersonalWarning?: boolean
+  /** 可选：用于后续在指引中展示账号/主体类型 */
+  accountType?: string
+  subjectType?: string
 }
 
 export default function WechatConfigGuide({

@@ -266,6 +266,20 @@ export function formatErrorForLogging(error: any): string {
   if (error instanceof Error) {
     return `${error.name}: ${error.message}\n${error.stack || ''}`
   }
-  
+
   return String(error)
+}
+
+/** 与微博侧一致：无过期时间或距过期不足 5 分钟视为需重授权 */
+export function isTokenExpired(tokenExpiry?: Date): boolean {
+  if (!tokenExpiry) {
+    return true
+  }
+  const bufferTime = 5 * 60 * 1000
+  return Date.now() >= tokenExpiry.getTime() - bufferTime
+}
+
+/** 由 OAuth expires_in（秒）计算过期时间 */
+export function calculateTokenExpiry(expiresIn: number): Date {
+  return new Date(Date.now() + expiresIn * 1000)
 }

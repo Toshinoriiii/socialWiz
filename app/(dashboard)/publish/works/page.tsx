@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -27,6 +27,33 @@ interface Draft {
   publishedAt?: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** 列表缩略图：封面优先，图文无封面时用首图 */
+function normalizeDraftThumbUrl (raw: string): string {
+  const t = raw.trim()
+  if (!t) return t
+  if (t.startsWith('/')) return t
+  try {
+    const u = new URL(t)
+    if (u.pathname.startsWith('/content-images/')) {
+      return `${u.pathname}${u.search}${u.hash}`
+    }
+  } catch {
+    /* 非绝对 URL */
+  }
+  return t
+}
+
+const DRAFT_LIST_PLACEHOLDER_IMG = '/placeholders/no-cover.svg'
+
+function draftThumbSrc (draft: Draft): string | null {
+  const cover = draft.coverImage?.trim()
+  const first = draft.images
+    ?.map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .find((s) => s.length > 0)
+  const raw = cover || first || null
+  return raw ? normalizeDraftThumbUrl(raw) : null
 }
 
 export default function WorksManagementPage() {
@@ -193,23 +220,25 @@ export default function WorksManagementPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {drafts.map((draft, index) => (
+              {drafts.map((draft, index) => {
+                const thumb = draftThumbSrc(draft) ?? DRAFT_LIST_PLACEHOLDER_IMG
+                return (
                 <div key={draft.id}>
                   <div
                     className={cn(
-                      "flex items-center justify-between p-4 rounded-lg border border-gray-300 bg-white transition-all duration-150 group",
+                      "flex items-center justify-between gap-4 p-4 rounded-lg border border-gray-300 bg-white transition-all duration-150 group",
                       draft.status !== 'PUBLISHED' && "hover:bg-gray-50 cursor-pointer"
                     )}
                     onClick={() => draft.status !== 'PUBLISHED' && handleEdit(draft)}
                   >
+                    <img
+                      src={thumb}
+                      alt=""
+                      className="size-20 shrink-0 rounded-lg border border-gray-200 bg-gray-100 object-cover"
+                    />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2">
-                        {draft.images && draft.images.length > 0 ? (
-                          <ImageIcon className="size-5 text-gray-400 shrink-0" />
-                        ) : (
-                          <FileText className="size-5 text-gray-400 shrink-0" />
-                        )}
-                        <h3 className="font-medium text-black truncate group-hover:text-gray-700 transition-colors">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <h3 className="min-w-0 flex-1 font-medium text-black truncate group-hover:text-gray-700 transition-colors sm:flex-none sm:flex-initial">
                           {draft.title || '未命名作品'}
                         </h3>
                         {getStatusBadge(draft.status)}
@@ -219,7 +248,7 @@ export default function WorksManagementPage() {
                           </Badge>
                         )}
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 ml-8">
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
                         <div className="flex items-center gap-1">
                           <Calendar className="size-3" />
                           <span>更新于 {formatDate(draft.updatedAt)}</span>
@@ -313,7 +342,7 @@ export default function WorksManagementPage() {
                     <Separator className="bg-gray-300 my-4" />
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </CardContent>

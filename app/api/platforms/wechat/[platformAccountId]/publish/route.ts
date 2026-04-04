@@ -12,7 +12,7 @@ import type { PublishContent } from '@/lib/platforms/base/types'
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { platformAccountId: string } }
+  context: { params: Promise<{ platformAccountId: string }> }
 ) {
   try {
     // 验证用户身份
@@ -27,7 +27,7 @@ export async function POST(
     const token = authHeader.substring(7)
     const user = await AuthService.verifyToken(token)
 
-    const { platformAccountId } = params
+    const { platformAccountId } = await context.params
 
     // 解析请求体
     const body = await request.json()
@@ -112,28 +112,33 @@ export async function POST(
       )
     }
 
-    // 如果提供了 contentId，更新 ContentPlatform 记录
     if (contentId) {
-      await prisma.contentPlatform.upsert({
+      const existing = await prisma.contentPlatform.findFirst({
         where: {
-          contentId_platformAccountId: {
-            contentId,
-            platformAccountId
-          }
-        },
-        create: {
           contentId,
-          platformAccountId,
-          platformContentId: result.platformPostId,
-          publishedUrl: result.publishedUrl,
-          publishStatus: 'SUCCESS'
-        },
-        update: {
-          platformContentId: result.platformPostId,
-          publishedUrl: result.publishedUrl,
-          publishStatus: 'SUCCESS'
+          platformAccountId
         }
       })
+      if (existing) {
+        await prisma.contentPlatform.update({
+          where: { id: existing.id },
+          data: {
+            platformContentId: result.platformPostId,
+            publishedUrl: result.publishedUrl,
+            publishStatus: 'SUCCESS'
+          }
+        })
+      } else {
+        await prisma.contentPlatform.create({
+          data: {
+            contentId,
+            platformAccountId,
+            platformContentId: result.platformPostId,
+            publishedUrl: result.publishedUrl,
+            publishStatus: 'SUCCESS'
+          }
+        })
+      }
     }
 
     return NextResponse.json({
