@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { AuthService } from '@/lib/services/auth.service'
 import { WeiboAdapter } from '@/lib/platforms/weibo/weibo-adapter'
@@ -9,6 +9,10 @@ import { isTokenExpired } from '@/lib/platforms/weibo/weibo-utils'
 import { isWeiboBrowserSessionAccount } from '@/lib/platforms/connection-kind'
 import { NonOfficialPublishService } from '@/lib/services/non-official-publish.service'
 import { absoluteUrlsForContent } from '@/lib/utils/content-image-urls'
+import {
+  effectiveWeiboContentTypeFromRecord,
+  weiboPublishBodyTextFallback
+} from '@/lib/utils/weibo-publish-content'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -83,16 +87,12 @@ export async function POST(
           publishText = content.content || content.title || ''
         }
         fromContentTitle = content.title
-        fromContentType = content.contentType ?? undefined
+        fromContentType = effectiveWeiboContentTypeFromRecord(content)
         fromContentImages = absoluteUrlsForContent(
           process.env.NEXT_PUBLIC_BASE_URL,
           content.coverImage,
           content.images
         )
-      }
-      const bodyText = (publishText ?? '').trim()
-      if (!bodyText) {
-        return NextResponse.json({ error: '内容不能为空' }, { status: 400 })
       }
       const imageUrls =
         Array.isArray(bodyImageUrls) && bodyImageUrls.length > 0
@@ -106,6 +106,14 @@ export async function POST(
         typeof bodyContentType === 'string' && bodyContentType.trim()
           ? bodyContentType.trim()
           : fromContentType
+      const bodyText = weiboPublishBodyTextFallback({
+        text: (publishText ?? '').trim(),
+        imageUrls,
+        title: mergedTitle
+      })
+      if (!bodyText) {
+        return NextResponse.json({ error: '内容不能为空' }, { status: 400 })
+      }
       const r = await NonOfficialPublishService.publishWeiboBrowserSession({
         userId: user.id,
         platformAccountId,

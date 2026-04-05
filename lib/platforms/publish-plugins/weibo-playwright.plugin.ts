@@ -1,4 +1,4 @@
-import { Platform } from '@/types/platform.types'
+﻿import { Platform } from '@/types/platform.types'
 import type {
   PlatformPublishPlugin,
   PublishPluginContext,
@@ -26,6 +26,7 @@ export const weiboPlaywrightPlugin: PlatformPublishPlugin = {
     }
     const r = await startWeiboPlaywrightComposeProcess(ctx.userId, text, {
       imageUrls: extras?.imageUrls,
+      coverImagePart: extras?.coverImagePart,
       title: extras?.title,
       contentType: extras?.contentType,
       weiboPublishConfig: extras?.weiboPublishConfig

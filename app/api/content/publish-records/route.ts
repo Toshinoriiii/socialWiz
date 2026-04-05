@@ -1,6 +1,6 @@
-/**
+﻿/**
  * 发布记录 API
- * GET /api/content/publish-records - 获取用户的发布记录（按时间倒序）
+ * GET /api/content/publish-records - 按作品（草稿）聚合：一篇内容一条记录，内含各成功发布平台与链接（按最近发布时间倒序）
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -99,32 +99,63 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    const list = records.map((r) => {
-      const platform = r.wechatConfig
-        ? 'WECHAT'
-        : r.platformAccount?.platform || 'UNKNOWN'
-      const accountName = r.wechatConfig?.accountName || r.wechatConfig?.appId ||
-        r.platformAccount?.platformUsername || '-'
+    type Row = (typeof records)[number]
+    const byContent = new Map<string, Row[]>()
+    for (const r of records) {
+      const arr = byContent.get(r.contentId)
+      if (arr) arr.push(r)
+      else byContent.set(r.contentId, [r])
+    }
+
+    const list = Array.from(byContent.entries()).map(([contentId, rows]) => {
+      const sorted = [...rows].sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+      )
+      const head = sorted[0]!
+      const c = head.content
+
+      const platforms = sorted.map((r) => {
+        const platform = r.wechatConfig
+          ? 'WECHAT'
+          : r.platformAccount?.platform || 'UNKNOWN'
+        const accountName =
+          r.wechatConfig?.accountName ||
+          r.wechatConfig?.appId ||
+          r.platformAccount?.platformUsername ||
+          '-'
+        return {
+          id: r.id,
+          platform,
+          platformName: PLATFORM_NAMES[platform] || platform,
+          accountName,
+          publishedUrl: r.publishedUrl,
+          platformContentId: r.platformContentId,
+          publishStatus: r.publishStatus,
+          createdAt: r.createdAt.toISOString(),
+        }
+      })
+
+      const latest = sorted.reduce((max, r) =>
+        r.createdAt > max ? r.createdAt : max
+      , sorted[0]!.createdAt)
 
       return {
-        id: r.id,
-        contentId: r.contentId,
-        platform,
-        platformName: PLATFORM_NAMES[platform] || platform,
-        accountName,
-        title: r.content?.title || '未命名',
-        contentPreview: r.content?.content?.slice(0, 200) || '',
-        coverImage: pickContentThumbUrl(
-          r.content?.coverImage,
-          r.content?.images
-        ),
-        publishedUrl: r.publishedUrl,
-        platformContentId: r.platformContentId,
-        publishStatus: r.publishStatus,
-        createdAt: r.createdAt,
-        publishedAt: r.content?.publishedAt,
+        /** 与作品一一对应，便于前端与删除/状态 API 使用 */
+        id: contentId,
+        contentId,
+        title: c?.title || '未命名',
+        contentPreview: c?.content?.slice(0, 200) || '',
+        coverImage: pickContentThumbUrl(c?.coverImage, c?.images),
+        publishedAt: c?.publishedAt,
+        latestPublishAt: latest.toISOString(),
+        platforms,
       }
     })
+
+    list.sort((a, b) =>
+      new Date(b.latestPublishAt).getTime() -
+      new Date(a.latestPublishAt).getTime()
+    )
 
     return NextResponse.json({ records: list })
   } catch (error) {

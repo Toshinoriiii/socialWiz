@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 统一发布接口
  * POST /api/platforms/publish
  *
@@ -7,11 +7,12 @@
  * 请求格式: FormData
  * - contentId: string (作品/草稿 ID，用于更新状态并创建发布记录)
  * - platform: string (WECHAT | WEIBO)
- * - accountId: string (账号ID：WECHAT=WechatAccountConfig.id, WEIBO=PlatformAccount.id)
+ * - accountId: string (PlatformAccount.id)
  * - publishConfigId?: string (PlatformPublishConfig id，提供作者、原文链接等)
  * - title: string (标题)
  * - content: string (内容)
  * - coverImage?: File (封面图片，WECHAT 可选，无封面时使用默认图)
+ * - deferContentPublishedUpdate?: 传 "1"/"true" 时，会话型微信/微博成功不将 Content 标为 PUBLISHED（多平台同批由前端结束后统一更新）
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -22,7 +23,7 @@ import { PublishService } from '@/lib/services/publish.service'
 import { convertToJpegForWechat, createDefaultWechatCover } from '@/lib/utils/image-convert'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 300
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
 
@@ -56,6 +57,11 @@ export async function POST(request: NextRequest) {
     const title = (formData.get('title') as string) || ''
     const content = (formData.get('content') as string) || ''
     const imageFile = formData.get('image') as File | null
+    const deferRaw = formData.get('deferContentPublishedUpdate')
+    const deferContentPublishedUpdate =
+      deferRaw === '1' ||
+      deferRaw === 'true' ||
+      String(deferRaw || '').toLowerCase() === 'on'
 
     if (!platform || !accountId) {
       return NextResponse.json(
@@ -141,6 +147,7 @@ export async function POST(request: NextRequest) {
       title: title.trim(),
       content: content.trim(),
       coverImage,
+      deferContentPublishedUpdate,
     })
 
     if (!result.success) {
@@ -163,7 +170,10 @@ export async function POST(request: NextRequest) {
      * 其中已将 `ContentPlatform` 标为 SUCCESS。若在此再写 PENDING，发布记录 API（只列 SUCCESS）
      * 会看不到微博发文，与用户在微博端已见帖矛盾。
      */
-    if (result.requiresJobPolling && platform === Platform.WEIBO) {
+    if (
+      result.requiresJobPolling &&
+      (platform === Platform.WEIBO || platform === Platform.WECHAT)
+    ) {
       return NextResponse.json({
         success: true,
         jobId: result.jobId,
@@ -195,13 +205,26 @@ export async function POST(request: NextRequest) {
           },
         })
         if (platform === Platform.WECHAT) {
+          const pa = await prisma.platformAccount.findUnique({
+            where: { id: accountId },
+            select: { wechatAccountConfigId: true },
+          })
+          const wechatCfgId = pa?.wechatAccountConfigId ?? undefined
           const existing = await prisma.contentPlatform.findFirst({
-            where: { contentId, wechatConfigId: accountId },
+            where: {
+              contentId,
+              OR: [
+                { platformAccountId: accountId },
+                ...(wechatCfgId ? [{ wechatConfigId: wechatCfgId }] : []),
+              ],
+            },
           })
           if (existing) {
             await prisma.contentPlatform.update({
               where: { id: existing.id },
               data: {
+                platformAccountId: accountId,
+                wechatConfigId: wechatCfgId,
                 platformContentId: platformContentIdStr,
                 publishedUrl: result.publishedUrl ?? undefined,
                 publishStatus: 'SUCCESS',
@@ -211,7 +234,8 @@ export async function POST(request: NextRequest) {
             await prisma.contentPlatform.create({
               data: {
                 contentId,
-                wechatConfigId: accountId,
+                platformAccountId: accountId,
+                wechatConfigId: wechatCfgId,
                 platformContentId: platformContentIdStr,
                 publishedUrl: result.publishedUrl ?? undefined,
                 publishStatus: 'SUCCESS',

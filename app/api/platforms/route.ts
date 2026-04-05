@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { AuthService } from '@/lib/services/auth.service'
 import { Platform } from '@/types/platform.types'
@@ -8,6 +8,12 @@ import {
   isPlaywrightWeiboUserId
 } from '@/lib/weibo-playwright/session-files'
 import { syncWeiboPlaywrightPlatformAccount } from '@/lib/weibo-playwright/sync-playwright-account'
+import { backfillWechatCredentialPlatformAccounts } from '@/lib/platforms/wechat/wechat-platform-account'
+import {
+  wechatPlaywrightSessionExists,
+  isPlaywrightWeChatUserId
+} from '@/lib/wechat-playwright/session-files'
+import { syncWechatPlaywrightPlatformAccount } from '@/lib/wechat-playwright/sync-playwright-account'
 
 /**
  * GET /api/platforms
@@ -35,6 +41,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    if (wechatPlaywrightSessionExists(user.id)) {
+      try {
+        await syncWechatPlaywrightPlatformAccount(user.id)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    try {
+      await backfillWechatCredentialPlatformAccounts(user.id)
+    } catch {
+      /* 不阻断列表 */
+    }
+
     // 获取用户的平台账号列表
     const platformAccounts = await prisma.platformAccount.findMany({
       where: {
@@ -47,8 +67,18 @@ export async function GET(request: NextRequest) {
         platformUsername: true,
         isConnected: true,
         tokenExpiry: true,
+        wechatAccountConfigId: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        wechatAccountConfig: {
+          select: {
+            appId: true,
+            accountName: true,
+            subjectType: true,
+            canPublish: true,
+            isActive: true
+          }
+        }
       },
       orderBy: {
         createdAt: 'desc'
@@ -58,15 +88,53 @@ export async function GET(request: NextRequest) {
     const enriched = platformAccounts.map((a) => {
       const isPlaywrightWeibo =
         a.platform === Platform.WEIBO && isPlaywrightWeiboUserId(a.platformUserId)
-      const sessionMissing =
+      const sessionMissingWeibo =
         isPlaywrightWeibo && !weiboPlaywrightSessionExists(user.id)
+      const isPlaywrightWechat =
+        a.platform === Platform.WECHAT && isPlaywrightWeChatUserId(a.platformUserId)
+      const sessionMissingWechat =
+        isPlaywrightWechat && !wechatPlaywrightSessionExists(user.id)
+
+      let needsReauth: boolean
+      if (a.platform === Platform.WEIBO) {
+        needsReauth = isPlaywrightWeibo
+          ? sessionMissingWeibo || !a.isConnected
+          : !a.isConnected || isTokenExpired(a.tokenExpiry ?? undefined)
+      } else if (a.platform === Platform.WECHAT) {
+        if (isPlaywrightWechat) {
+          needsReauth = sessionMissingWechat || !a.isConnected
+        } else if (a.wechatAccountConfigId) {
+          needsReauth =
+            !a.isConnected ||
+            !a.wechatAccountConfig ||
+            !a.wechatAccountConfig.isActive
+        } else {
+          needsReauth =
+            !a.isConnected || isTokenExpired(a.tokenExpiry ?? undefined)
+        }
+      } else {
+        needsReauth =
+          !a.isConnected || isTokenExpired(a.tokenExpiry ?? undefined)
+      }
+
+      const { wechatAccountConfig, ...rest } = a
+
+      let canPublish: boolean | undefined
+      if (a.platform === Platform.WECHAT) {
+        if (isPlaywrightWechat) {
+          canPublish = !sessionMissingWechat
+        } else {
+          canPublish = wechatAccountConfig?.canPublish ?? undefined
+        }
+      }
+
       return {
-        ...a,
-        needsReauth:
-          isPlaywrightWeibo
-            ? sessionMissing || !a.isConnected
-            : a.platform === Platform.WEIBO &&
-              (!a.isConnected || isTokenExpired(a.tokenExpiry ?? undefined))
+        ...rest,
+        needsReauth,
+        appId: wechatAccountConfig?.appId,
+        accountName: wechatAccountConfig?.accountName ?? undefined,
+        subjectType: wechatAccountConfig?.subjectType ?? undefined,
+        canPublish
       }
     })
 

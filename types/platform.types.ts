@@ -1,10 +1,21 @@
-import type { ReactNode } from 'react'
+﻿import type { ReactNode } from 'react'
 
 export enum Platform {
   WECHAT = 'WECHAT',
   WEIBO = 'WEIBO',
   DOUYIN = 'DOUYIN',
   XIAOHONGSHU = 'XIAOHONGSHU'
+}
+
+/** mp 浏览器 Playwright 绑定账号的 `platformUserId` 前缀（与 session-files 一致） */
+export const WECHAT_PLAYWRIGHT_PLATFORM_USER_ID_PREFIX =
+  'wechat_playwright:' as const
+
+export function isWechatPlaywrightPlatformUserId (
+  platformUserId: string | undefined | null
+): boolean {
+  if (!platformUserId) return false
+  return platformUserId.startsWith(WECHAT_PLAYWRIGHT_PLATFORM_USER_ID_PREFIX)
 }
 
 export interface PlatformAccount {

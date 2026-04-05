@@ -2,8 +2,8 @@
  * 查询发布状态（按作品聚合）
  * GET /api/content/publish-records/[recordId]/status
  *
- * recordId 为任一 ContentPlatform 记录 ID；返回该作品下所有 SUCCESS 的平台行：
- * 平台名、账号、文章链接；微信行会按需请求 freepublish/get。
+ * recordId 优先为 **作品/草稿 ID（contentId）**；兼容传入任一 ContentPlatform 行 ID。
+ * 返回该作品下所有 SUCCESS 的平台行：平台名、账号、文章链接；微信行会按需请求 freepublish/get。
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -117,23 +117,37 @@ export async function GET (
 
     const { recordId } = await params
 
-    const anchor = await prisma.contentPlatform.findFirst({
-      where: {
-        id: recordId,
-        content: { userId: user.id },
-      },
-      include: {
-        content: { select: { id: true, title: true } },
-      },
+    const ownedContent = await prisma.content.findFirst({
+      where: { id: recordId, userId: user.id },
+      select: { id: true, title: true },
     })
 
-    if (!anchor || !anchor.content) {
-      return NextResponse.json({ error: '发布记录不存在' }, { status: 404 })
+    let contentId: string
+    let title: string
+
+    if (ownedContent) {
+      contentId = ownedContent.id
+      title = ownedContent.title
+    } else {
+      const anchor = await prisma.contentPlatform.findFirst({
+        where: {
+          id: recordId,
+          content: { userId: user.id },
+        },
+        include: {
+          content: { select: { id: true, title: true } },
+        },
+      })
+      if (!anchor?.content) {
+        return NextResponse.json({ error: '发布记录不存在' }, { status: 404 })
+      }
+      contentId = anchor.contentId
+      title = anchor.content.title
     }
 
     const rows = await prisma.contentPlatform.findMany({
       where: {
-        contentId: anchor.contentId,
+        contentId,
         publishStatus: 'SUCCESS',
         content: { userId: user.id },
       },
@@ -194,8 +208,8 @@ export async function GET (
     )
 
     return NextResponse.json({
-      title: anchor.content.title,
-      contentId: anchor.contentId,
+      title,
+      contentId,
       platforms,
     })
   } catch (error) {

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 微信公众号配置管理服务
  * Feature: 005-wechat-integration
  */
@@ -9,6 +9,9 @@ import { encrypt, decrypt } from '../utils/encryption'
 import { wechatApiClient } from '../platforms/wechat/wechat-client'
 import { getTokenCacheKey } from '../platforms/wechat/wechat-utils'
 import { wechatTokenService } from './wechat-token.service'
+import { attachWechatCredentialPlatformAccount } from '@/lib/platforms/wechat/wechat-platform-account'
+import { Platform } from '@/types/platform.types'
+import { wechatPlaywrightSessionExists } from '@/lib/wechat-playwright/session-files'
 
 /**
  * 创建配置请求
@@ -79,6 +82,25 @@ export class WechatConfigService {
       throw new Error('该AppID的配置已存在')
     }
 
+    if (wechatPlaywrightSessionExists(userId)) {
+      throw new Error(
+        '已使用本机浏览器绑定微信公众号，请先解绑后再添加 AppID / AppSecret。'
+      )
+    }
+
+    const oauthWechat = await prisma.platformAccount.findFirst({
+      where: {
+        userId,
+        platform: Platform.WECHAT,
+        wechatAccountConfigId: null
+      }
+    })
+    if (oauthWechat) {
+      throw new Error(
+        '已绑定微信（网页授权）。请先解绑后再使用 AppID + AppSecret 开发者凭证。'
+      )
+    }
+
     // 验证AppID和AppSecret（调用微信API）
     try {
       const tokenResponse = await wechatApiClient.getAccessToken(appId, appSecret)
@@ -94,7 +116,7 @@ export class WechatConfigService {
       const canPublish = subjectType === 'enterprise'
 
       // 创建配置
-      const config = await (prisma as any).wechatAccountConfig.create({
+      const config = await prisma.wechatAccountConfig.create({
         data: {
           userId,
           appId,
@@ -104,6 +126,13 @@ export class WechatConfigService {
           canPublish,
           isActive: true
         }
+      })
+
+      await attachWechatCredentialPlatformAccount(userId, {
+        id: config.id,
+        appId: config.appId,
+        accountName: config.accountName,
+        isActive: config.isActive
       })
 
       return this.toConfigResponse(config)
@@ -223,9 +252,16 @@ export class WechatConfigService {
       updateData.isActive = request.isActive
     }
 
-    const updated = await (prisma as any).wechatAccountConfig.update({
+    const updated = await prisma.wechatAccountConfig.update({
       where: { id: configId },
       data: updateData
+    })
+
+    await attachWechatCredentialPlatformAccount(userId, {
+      id: updated.id,
+      appId: updated.appId,
+      accountName: updated.accountName,
+      isActive: updated.isActive
     })
 
     return this.toConfigResponse(updated)

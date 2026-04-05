@@ -15,20 +15,27 @@ import { useUserStore } from '@/store/user.store'
 import { toast } from 'sonner'
 import { History, ArrowLeft, ExternalLink, MessageCircle, Calendar, FileText, Loader2, Info, Trash2, CheckCircle2 } from 'lucide-react'
 
-interface PublishRecord {
+interface PublishRecordPlatform {
   id: string
-  contentId: string
   platform: string
   platformName: string
   accountName: string
-  title: string
-  contentPreview: string
-  coverImage?: string | null
   publishedUrl?: string | null
   platformContentId?: string | null
   publishStatus: string
   createdAt: string
+}
+
+/** 一篇作品（草稿）一条记录，内含多个已成功发布的平台 */
+interface PublishRecord {
+  id: string
+  contentId: string
+  title: string
+  contentPreview: string
+  coverImage?: string | null
   publishedAt?: string | null
+  latestPublishAt: string
+  platforms: PublishRecordPlatform[]
 }
 
 const PLATFORM_ICONS: Record<string, React.ElementType> = {
@@ -175,7 +182,7 @@ export default function PublishHistoryPage() {
         <CardHeader>
           <CardTitle className="text-black">全部发布记录</CardTitle>
           <CardDescription className="text-gray-600">
-            按发布时间倒序，展示平台、内容、时间等信息
+            每条对应一篇作品；同一作品发布到多个平台时，链接汇总在同一条记录下
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -195,65 +202,101 @@ export default function PublishHistoryPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {records.map((record) => {
-                const PlatformIcon = PLATFORM_ICONS[record.platform] || FileText
-                return (
-                  <div
-                    key={record.id}
-                    className="flex items-start gap-4 p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50/50 transition-colors"
-                  >
-                    {record.coverImage ? (
-                      <img
-                        src={record.coverImage}
-                        alt=""
-                        className="w-20 h-20 object-cover rounded-lg shrink-0"
-                      />
-                    ) : (
-                      <div className="w-20 h-20 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
-                        <FileText className="size-8 text-gray-400" />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <h3 className="font-medium text-black truncate">{record.title}</h3>
-                        <Badge
-                          variant="secondary"
-                          className={record.platform === 'WECHAT' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}
-                        >
-                          <PlatformIcon className="size-3 mr-1" />
-                          {record.platformName}
-                        </Badge>
-                        <span className="text-sm text-gray-500">· {record.accountName}</span>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 mt-1 flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="size-3" />
-                          {formatDate(record.createdAt)}
-                        </span>
-                      </div>
+              {records.map((record) => (
+                <div
+                  key={record.id}
+                  className="flex items-start gap-4 p-4 rounded-lg border border-gray-200 bg-white hover:bg-gray-50/50 transition-colors"
+                >
+                  {record.coverImage ? (
+                    <img
+                      src={record.coverImage}
+                      alt=""
+                      className="w-20 h-20 object-cover rounded-lg shrink-0"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                      <FileText className="size-8 text-gray-400" />
                     </div>
-                    <div className="flex gap-2 shrink-0">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-gray-300"
-                        onClick={() => fetchStatus(record)}
-                      >
-                        <Info className="size-4 mr-1" />
-                        查看发布状态
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-gray-300 text-gray-500 hover:text-red-600 hover:border-red-300"
-                        onClick={() => setDeleteRecord(record)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="font-medium text-black truncate max-w-full">
+                        {record.title}
+                      </h3>
+                      {record.platforms.map((p) => {
+                        const PlatformIcon =
+                          PLATFORM_ICONS[p.platform] || FileText
+                        return (
+                          <Badge
+                            key={p.id}
+                            variant="secondary"
+                            className={
+                              p.platform === 'WECHAT'
+                                ? 'bg-green-100 text-green-700'
+                                : p.platform === 'WEIBO'
+                                  ? 'bg-orange-100 text-orange-700'
+                                  : 'bg-neutral-100 text-neutral-700'
+                            }
+                          >
+                            <PlatformIcon className="size-3 mr-1" />
+                            {p.platformName}
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                    <div className="mt-2 space-y-1.5">
+                      {record.platforms.map((p) => (
+                        <div
+                          key={p.id}
+                          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600"
+                        >
+                          <span className="text-gray-500 shrink-0">
+                            {p.platformName}（{p.accountName}）
+                          </span>
+                          {p.publishedUrl ? (
+                            <a
+                              href={p.publishedUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-primary hover:underline"
+                            >
+                              <ExternalLink className="size-3.5 shrink-0" />
+                              打开链接
+                            </a>
+                          ) : (
+                            <span className="text-xs text-gray-400">暂无链接</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-gray-500 mt-2 flex-wrap">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="size-3" />
+                        {formatDate(record.latestPublishAt)}
+                      </span>
                     </div>
                   </div>
-                )
-              })}
+                  <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-gray-300"
+                      onClick={() => fetchStatus(record)}
+                    >
+                      <Info className="size-4 mr-1" />
+                      发布状态
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-gray-300 text-gray-500 hover:text-red-600 hover:border-red-300"
+                      onClick={() => setDeleteRecord(record)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
@@ -278,19 +321,24 @@ export default function PublishHistoryPage() {
                   <Loader2 className="size-5 animate-spin text-primary" />
                   <span className="text-sm">正在查询各平台状态…</span>
                 </div>
-                {statusDialog.record?.publishedUrl && (
-                  <p className="text-xs text-muted-foreground">
-                    查询完成后将显示该作品下所有平台的链接；当前条目链接也可先打开：{' '}
-                    <a
-                      href={statusDialog.record.publishedUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary underline underline-offset-2"
-                    >
-                      打开
-                    </a>
-                  </p>
-                )}
+                {(() => {
+                  const firstUrl = statusDialog.record?.platforms?.find(
+                    (p) => p.publishedUrl
+                  )?.publishedUrl
+                  return firstUrl ? (
+                    <p className="text-xs text-muted-foreground">
+                      查询完成后将列出各平台链接；也可先打开已有链接：{' '}
+                      <a
+                        href={firstUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary underline underline-offset-2"
+                      >
+                        打开
+                      </a>
+                    </p>
+                  ) : null
+                })()}
               </div>
             ) : statusDialog.status &&
               statusDialog.status.platforms.length > 0 ? (
@@ -373,7 +421,7 @@ export default function PublishHistoryPage() {
             <DialogTitle className="text-foreground">删除发布记录</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground py-2">
-            确定要删除此发布记录吗？仅删除本应用内的记录，不会删除远程平台（如微信公众号）上的文章。
+            确定要删除这条发布记录吗？将移除本应用中该作品下所有平台的发布关联，不会删除各平台上已发布的文章。
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setDeleteRecord(null)} disabled={deleting}>

@@ -28,27 +28,30 @@ model User {
 }
 
 model PlatformAccount {
-  id                 String           @id @default(uuid())
-  userId             String
-  platform           Platform
-  platformUserId     String
-  platformUsername   String
-  accessToken        String
-  refreshToken       String?
-  tokenExpiry        DateTime?
-  isConnected        Boolean          @default(true)
-  weiboAppConfigId   String?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  analytics          Analytics[]
-  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  weiboAppConfig     WeiboAppConfig?  @relation(fields: [weiboAppConfigId], references: [id], onDelete: SetNull)
-  contentPlatforms   ContentPlatform[]
-  publishJobs        PublishJob[]
+  id                    String                @id @default(uuid())
+  userId                String
+  platform              Platform
+  platformUserId        String
+  platformUsername      String
+  accessToken           String
+  refreshToken          String?
+  tokenExpiry           DateTime?
+  isConnected           Boolean               @default(true)
+  weiboAppConfigId      String?
+  wechatAccountConfigId String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  analytics             Analytics[]
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weiboAppConfig        WeiboAppConfig?       @relation(fields: [weiboAppConfigId], references: [id], onDelete: SetNull)
+  wechatAccountConfig   WechatAccountConfig?  @relation(fields: [wechatAccountConfigId], references: [id], onDelete: Cascade)
+  contentPlatforms      ContentPlatform[]
+  publishJobs           PublishJob[]
 
   @@unique([userId, platform, platformUserId])
   @@index([userId])
   @@index([weiboAppConfigId])
+  @@index([wechatAccountConfigId])
 }
 
 model PublishJob {
@@ -168,19 +171,20 @@ model AIGenerationLog {
 }
 
 model WechatAccountConfig {
-  id               String            @id @default(uuid())
+  id               String             @id @default(uuid())
   userId           String
   appId            String
   appSecret        String
   accountName      String?
   accountType      String?
   subjectType      String?
-  canPublish       Boolean           @default(false)
-  isActive         Boolean           @default(true)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  canPublish       Boolean            @default(false)
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
   contentPlatforms ContentPlatform[]
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformAccounts PlatformAccount[]
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, appId])
   @@index([userId])

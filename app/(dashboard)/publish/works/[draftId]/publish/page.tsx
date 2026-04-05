@@ -37,11 +37,16 @@ import {
   History as HistoryIcon,
 } from 'lucide-react'
 import { PlatformBrandLogo } from '@/components/dashboard/PlatformBrandLogo'
-import { Platform } from '@/types/platform.types'
+import {
+  Platform,
+  isWechatPlaywrightPlatformUserId
+} from '@/types/platform.types'
 
 interface PlatformAccount {
   id: string
   platform: string
+  /** 用于识别微信公众号浏览器绑定账号 */
+  platformUserId?: string
   platformUsername: string
   isConnected: boolean
   canPublish?: boolean
@@ -67,6 +72,16 @@ interface Draft {
   contentType?: string | null
   status?: string
   publishedAt?: string | null
+}
+
+/** 与作品列表一致：无 contentType 时按封面/配图推断，避免错误排除微信公众号 */
+function draftEffectivePublishContentType (draft: Draft): 'article' | 'image-text' {
+  if (draft.contentType === 'image-text') return 'image-text'
+  if (draft.contentType === 'article') return 'article'
+  const hasImages = draft.images && draft.images.length > 0
+  const hasCoverImage = draft.coverImage && String(draft.coverImage).trim().length > 0
+  if (hasImages && !hasCoverImage) return 'image-text'
+  return 'article'
 }
 
 const STEPS = [
@@ -103,6 +118,12 @@ function AccountPlatformLogo ({ platformKey }: { platformKey: string }) {
       <User className="size-5 text-muted-foreground" />
     </div>
   )
+}
+
+/** 同批多平台时结果列表顺序：微博在前、微信在后；各平台发布请求并行发出，互不争抢同一顺序 */
+function orderAccountsForBatchPublish<T extends { platform: string }> (accounts: T[]): T[] {
+  const rank = (p: string) => (p === 'WEIBO' ? 0 : p === 'WECHAT' ? 1 : 2)
+  return [...accounts].sort((a, b) => rank(a.platform) - rank(b.platform))
 }
 
 async function pollPublishJob(
@@ -175,8 +196,8 @@ export default function PublishFlowPage() {
 
   // 草稿加载后清除不支持的平台选择（如图文草稿时清掉微信）
   useEffect(() => {
-    if (!draft?.contentType || selectedAccountIds.size === 0) return
-    const ct = draft.contentType === 'image-text' ? 'image-text' : 'article'
+    if (!draft || selectedAccountIds.size === 0) return
+    const ct = draftEffectivePublishContentType(draft)
     const invalidIds = Array.from(selectedAccountIds).filter(id => {
       const acc = accounts.find(a => a.id === id)
       return acc && !(PLATFORM_CONTENT_SUPPORT[acc.platform]?.includes(ct))
@@ -188,7 +209,7 @@ export default function PublishFlowPage() {
         return next
       })
     }
-  }, [draft?.contentType, accounts, selectedAccountIds])
+  }, [draft, accounts, selectedAccountIds])
 
   // 加载平台配置（当选择了账号后进入步骤2时）
   useEffect(() => {
@@ -249,39 +270,28 @@ export default function PublishFlowPage() {
     if (!token) return
     setRefreshing(true)
     try {
-      const [platformsRes, wechatRes] = await Promise.all([
-        fetch('/api/platforms', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/platforms/wechat/config', { headers: { Authorization: `Bearer ${token}` } }),
-      ])
+      const platformsRes = await fetch('/api/platforms', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
 
       const list: PlatformAccount[] = []
 
       if (platformsRes.ok) {
         const data = await platformsRes.json()
         data.forEach((a: any) => {
-          if (a.isConnected) list.push({
+          if (!a.isConnected) return
+          // 仅排除「开发者凭证绑定 + 主体不允许发文」；浏览器会话微信无 appId，不得误删
+          if (a.platform === 'WECHAT' && a.canPublish === false && a.appId) return
+          list.push({
             id: a.id,
             platform: a.platform,
+            platformUserId: a.platformUserId,
             platformUsername: a.platformUsername,
             isConnected: a.isConnected,
+            canPublish: a.canPublish,
+            accountName: a.accountName,
+            appId: a.appId,
           })
-        })
-      }
-
-      if (wechatRes.ok) {
-        const wechatConfigs = await wechatRes.json()
-        wechatConfigs.forEach((c: any) => {
-          if (c.isActive && c.canPublish) {
-            list.push({
-              id: c.id,
-              platform: 'WECHAT',
-              platformUsername: c.accountName || c.appId,
-              isConnected: c.isActive,
-              canPublish: c.canPublish,
-              accountName: c.accountName,
-              appId: c.appId,
-            })
-          }
         })
       }
 
@@ -306,7 +316,9 @@ export default function PublishFlowPage() {
     })
   }
 
-  const effectiveContentType = (draft?.contentType === 'image-text' ? 'image-text' : 'article') as 'article' | 'image-text'
+  const effectiveContentType = draft
+    ? draftEffectivePublishContentType(draft)
+    : 'article'
 
   const filteredAccounts = accounts.filter(acc => {
     const supportedTypes = PLATFORM_CONTENT_SUPPORT[acc.platform]
@@ -324,6 +336,8 @@ export default function PublishFlowPage() {
   const canGoNextStep1 = selectedAccountIds.size > 0
   const canGoNextStep2 = selectedAccounts.every(acc => {
     if (acc.platform !== 'WECHAT') return true
+    // 浏览器绑定：作者/原文链接等为可选项，无需先建 PlatformPublishConfig
+    if (isWechatPlaywrightPlatformUserId(acc.platformUserId)) return true
     const platformConfigs = configs.filter(c => c.platform === acc.platform)
     if (platformConfigs.length === 0) return false
     const configId = accountConfigMap[acc.id]
@@ -346,85 +360,144 @@ export default function PublishFlowPage() {
   const startPublish = async () => {
     if (!draft || !token) return
     setPublishing(true)
-    const results: Array<{ accountId: string; success: boolean; message?: string }> = []
 
-    for (const acc of selectedAccounts) {
-      // 统一发布接口：将配置项与平台发布方法结合
-      const publishConfigId = accountConfigMap[acc.id]
+    const batchAccounts = orderAccountsForBatchPublish(selectedAccounts)
 
-      if (acc.platform === 'WECHAT') {
-        if (!publishConfigId) {
-          results.push({ accountId: acc.id, success: false, message: '未选择平台配置' })
-          continue
-        }
-        const coverUrl = draft.coverImage || (draft.images?.[0])
-        let imageFile: File | null = null
-        if (coverUrl) {
-          try {
-            const imgRes = await fetch(coverUrl)
-            const blob = await imgRes.blob()
-            const mime = blob.type || 'image/jpeg'
-            imageFile = new File([blob], 'cover.jpg', { type: mime })
-          } catch {
-            results.push({ accountId: acc.id, success: false, message: '封面图获取失败' })
-            continue
+    type PublishResultRow = { accountId: string; success: boolean; message?: string }
+
+    const results: PublishResultRow[] = await Promise.all(
+      batchAccounts.map(async (acc): Promise<PublishResultRow> => {
+        const publishConfigId = accountConfigMap[acc.id]
+
+        try {
+          if (acc.platform === 'WECHAT') {
+            if (
+              !isWechatPlaywrightPlatformUserId(acc.platformUserId) &&
+              !publishConfigId
+            ) {
+              return { accountId: acc.id, success: false, message: '未选择平台配置' }
+            }
+            const coverUrl = draft.coverImage || draft.images?.[0]
+            let imageFile: File | null = null
+            if (coverUrl) {
+              try {
+                const imgRes = await fetch(coverUrl)
+                const blob = await imgRes.blob()
+                const mime = blob.type || 'image/jpeg'
+                imageFile = new File([blob], 'cover.jpg', { type: mime })
+              } catch {
+                return { accountId: acc.id, success: false, message: '封面图获取失败' }
+              }
+            }
+
+            const formData = new FormData()
+            formData.append('contentId', draft.id)
+            formData.append('platform', 'WECHAT')
+            formData.append('accountId', acc.id)
+            if (publishConfigId) formData.append('publishConfigId', publishConfigId)
+            formData.append('title', draft.title)
+            formData.append('content', draft.content)
+            formData.append('deferContentPublishedUpdate', '1')
+            if (imageFile) formData.append('image', imageFile)
+
+            const res = await fetch('/api/platforms/publish', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            })
+            const data = await res.json().catch(() => ({}))
+            if (res.ok && data.success && data.requiresJobPolling && data.jobId && token) {
+              const polled = await pollPublishJob(token, data.jobId)
+              return {
+                accountId: acc.id,
+                success: polled.ok,
+                message: polled.ok
+                  ? (data.message || '微信公众号群发请求已执行，请到公众平台确认')
+                  : (polled.errorMessage || data.details || data.error || '发布失败'),
+              }
+            }
+            return {
+              accountId: acc.id,
+              success: res.ok && data.success,
+              message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+            }
+          }
+
+          if (acc.platform === 'WEIBO') {
+            /** 头条/封面：与微信一致随 multipart 上传，避免服务端仅 URL 拉图失败 */
+            const coverUrl = draft.coverImage || draft.images?.[0]
+            let imageFile: File | null = null
+            if (coverUrl) {
+              try {
+                const imgRes = await fetch(coverUrl)
+                const blob = await imgRes.blob()
+                const mime = blob.type || 'image/jpeg'
+                imageFile = new File([blob], 'cover.jpg', { type: mime })
+              } catch {
+                /* 服务端仍可走 DB 中的绝对 URL / 本地 content-images */
+              }
+            }
+            const formData = new FormData()
+            formData.append('contentId', draft.id)
+            formData.append('platform', 'WEIBO')
+            formData.append('accountId', acc.id)
+            if (publishConfigId) formData.append('publishConfigId', publishConfigId)
+            formData.append('title', draft.title)
+            formData.append('content', draft.content)
+            formData.append('deferContentPublishedUpdate', '1')
+            if (imageFile) formData.append('image', imageFile)
+
+            const res = await fetch('/api/platforms/publish', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            })
+            const data = await res.json().catch(() => ({}))
+            if (res.ok && data.success && data.requiresJobPolling && data.jobId && token) {
+              const polled = await pollPublishJob(token, data.jobId)
+              return {
+                accountId: acc.id,
+                success: polled.ok,
+                message: polled.ok
+                  ? (data.message || '微博已在后台尝试发博，请到微博查看是否成功')
+                  : (polled.errorMessage || data.details || data.error || '发布失败'),
+              }
+            }
+            return {
+              accountId: acc.id,
+              success: res.ok && data.success,
+              message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+            }
+          }
+
+          return { accountId: acc.id, success: false, message: '暂不支持该平台发布' }
+        } catch (e) {
+          return {
+            accountId: acc.id,
+            success: false,
+            message: e instanceof Error ? e.message : '发布过程出错',
           }
         }
-        // 微信发布不强制需要封面，无封面时服务端使用默认图
+      })
+    )
 
-        const formData = new FormData()
-        formData.append('contentId', draft.id)
-        formData.append('platform', 'WECHAT')
-        formData.append('accountId', acc.id)
-        formData.append('publishConfigId', publishConfigId)
-        formData.append('title', draft.title)
-        formData.append('content', draft.content)
-        if (imageFile) formData.append('image', imageFile)
-
-        const res = await fetch('/api/platforms/publish', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        })
-        const data = await res.json().catch(() => ({}))
-        results.push({
-          accountId: acc.id,
-          success: res.ok && data.success,
-          message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
-        })
-      } else if (acc.platform === 'WEIBO') {
-        const formData = new FormData()
-        formData.append('contentId', draft.id)
-        formData.append('platform', 'WEIBO')
-        formData.append('accountId', acc.id)
-        if (publishConfigId) formData.append('publishConfigId', publishConfigId)
-        formData.append('title', draft.title)
-        formData.append('content', draft.content)
-
-        const res = await fetch('/api/platforms/publish', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        })
-        const data = await res.json().catch(() => ({}))
-        if (res.ok && data.success && data.requiresJobPolling && data.jobId && token) {
-          const polled = await pollPublishJob(token, data.jobId)
-          results.push({
-            accountId: acc.id,
-            success: polled.ok,
-            message: polled.ok
-              ? (data.message || '微博已在后台尝试发博，请到微博查看是否成功')
-              : (polled.errorMessage || data.details || data.error || '发布失败'),
-          })
-        } else {
-          results.push({
-            accountId: acc.id,
-            success: res.ok && data.success,
-            message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
-          })
-        }
-      } else {
-        results.push({ accountId: acc.id, success: false, message: '暂不支持该平台发布' })
+    const allSuccess = results.length > 0 && results.every((r) => r.success)
+    if (allSuccess) {
+      const patchRes = await fetch(`/api/content/draft/${draft.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'PUBLISHED' }),
+      })
+      if (!patchRes.ok) {
+        const errBody = await patchRes.json().catch(() => ({}))
+        toast.error(
+          typeof (errBody as { error?: string }).error === 'string'
+            ? (errBody as { error: string }).error
+            : '各平台已发布，但作品状态未更新，请刷新草稿页或稍后重试'
+        )
       }
     }
 
@@ -632,6 +705,13 @@ export default function PublishFlowPage() {
                         ? '暂无已绑定的平台账号'
                         : '没有符合条件的账号'}
                     </p>
+                    {accounts.length > 0 &&
+                      effectiveContentType === 'image-text' &&
+                      accounts.some((a) => a.platform === 'WECHAT') && (
+                      <p className="text-xs text-muted-foreground mb-4 max-w-sm">
+                        当前为图文草稿，微信公众号仅支持文章类草稿，故不列出微信。请创建或选用文章草稿后再发公众号。
+                      </p>
+                    )}
                     {accounts.length === 0 && (
                       <Button
                         variant="outline"
@@ -686,7 +766,9 @@ export default function PublishFlowPage() {
           <CardContent className="pt-6">
             <CardHeader className="px-0 pt-0">
               <CardTitle>选择平台配置</CardTitle>
-              <CardDescription className="mt-1.5">按平台为每个账号选择发布配置（作者、原文链接等）</CardDescription>
+              <CardDescription className="mt-1.5">
+                按平台为账号选择发布配置（作者、原文链接等）。微信浏览器绑定为可选项。
+              </CardDescription>
             </CardHeader>
             <div className="space-y-6 mt-4">
               {(() => {
@@ -704,6 +786,11 @@ export default function PublishFlowPage() {
                 return Object.entries(accountsByPlatform).map(([platform, platformAccounts]) => {
                   const platformConfigs = configs.filter(c => c.platform === platform)
                   const info = PLATFORM_INFO[platform] || { name: platform }
+                  const allBrowserWechat =
+                    platform === 'WECHAT' &&
+                    platformAccounts.every((a) =>
+                      isWechatPlaywrightPlatformUserId(a.platformUserId)
+                    )
 
                   return (
                     <div key={platform} className="rounded-lg border border-border overflow-visible">
@@ -721,16 +808,32 @@ export default function PublishFlowPage() {
                       {/* 该平台下的账号及配置选择 */}
                       <div className="divide-y divide-border">
                         {platformConfigs.length === 0 ? (
-                          <div className="px-4 py-4">
-                            <p className="text-sm text-muted-foreground mb-3">该平台暂无发布配置，请先在平台配置中创建</p>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => router.push('/platforms')}
-                            >
-                              前往平台配置
-                            </Button>
-                          </div>
+                          allBrowserWechat ? (
+                            <div className="px-4 py-4">
+                              <p className="text-sm text-muted-foreground">
+                                浏览器登录绑定公众号无须在此选择配置即可发文。需要统一填写作者、原文链接时，可到
+                                <Button
+                                  variant="link"
+                                  className="h-auto p-0 align-baseline text-foreground underline"
+                                  onClick={() => router.push('/platforms')}
+                                >
+                                  平台配置
+                                </Button>
+                                新建微信发布配置后再发布流程中选用（可选）。
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="px-4 py-4">
+                              <p className="text-sm text-muted-foreground mb-3">该平台暂无发布配置，请先在平台配置中创建</p>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => router.push('/platforms')}
+                              >
+                                前往平台配置
+                              </Button>
+                            </div>
+                          )
                         ) : (
                           platformAccounts.map((acc) => (
                             <div key={acc.id} className="flex items-center justify-between gap-4 px-4 py-3">
@@ -745,7 +848,11 @@ export default function PublishFlowPage() {
                                 onValueChange={(v) => setAccountConfigMap(prev => ({ ...prev, [acc.id]: v }))}
                               >
                                 <SelectTrigger className="w-[220px] shrink-0">
-                                  <SelectValue placeholder="选择配置..." />
+                                  <SelectValue
+                                    placeholder={
+                                      allBrowserWechat ? '（可选）发布配置…' : '选择配置...'
+                                    }
+                                  />
                                 </SelectTrigger>
                                 <SelectContent
                                   className="z-[9999]"

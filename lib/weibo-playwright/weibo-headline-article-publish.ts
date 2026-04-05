@@ -1,4 +1,4 @@
-import { markdownToHtml } from '@/lib/utils/markdown-to-html'
+﻿import { markdownToHtml } from '@/lib/utils/markdown-to-html'
 import {
   cookieHeaderForUrl,
   readWeiboPlaywrightStorageCookies
@@ -12,7 +12,8 @@ import {
 import { readWeiboPlaywrightProfile } from '@/lib/weibo-playwright/session-files'
 import {
   loadImagePartForWeibo,
-  uploadOneWeiboPicB64
+  uploadOneWeiboPicB64,
+  type ImagePart
 } from '@/lib/weibo-playwright/weibo-web-pic-upload'
 import { weiboProfileStatusUrl } from '@/lib/weibo-playwright/weibo-profile-status-url'
 import type { WeiboPublishConfigData } from '@/types/platform-config.types'
@@ -147,8 +148,7 @@ const V5_TITLE_KEYS = new Set([
 ])
 const V5_CONTENT_KEYS = new Set([
   'content',
-  /** v5 扁平草稿常同时有正文区与试读区，两端都需写入否则后台可见空 */
-  'free_content',
+  /** free_content 不在此集合：扁平 save 抓包多为空，仅 content 承载正文 */
   'html',
   'article_content',
   'body',
@@ -180,13 +180,33 @@ function optionalTrim (s: string | undefined): string | undefined {
   return t.length ? t : undefined
 }
 
-/** v5 draft/save 抓包：cover 多为 wx*.sinaimg.cn 完整 URL；图床接口给的 pid 需补成 large 图地址 */
+/** v5 draft/save 抓包：cover 多为 wx*.sinaimg.cn 完整 URL；仅 pid 时再拼 large（常见 wx1） */
 function normalizeWeiboV5CoverForSave (pidOrUrl: string): string {
   const t = pidOrUrl.trim()
   if (!t) return ''
   if (/^https?:\/\//i.test(t)) return t
-  return `https://wx3.sinaimg.cn/large/${t}.jpg`
+  const basePid = t.replace(/\.(jpe?g|png|gif|webp)$/i, '')
+  /** PC 抓包封面多为 wx1；上传接口若已返回完整 URL 则原样使用 */
+  return `https://wx1.sinaimg.cn/large/${basePid}.jpg`
 }
+
+/** 从 wx*.sinaimg.cn 的 large 等路径取出 pid，供 draft/save 附加 cover_pid */
+function extractWeiboLargePidFromCoverUrl (coverUrl: string): string | null {
+  const t = coverUrl.trim()
+  const m = t.match(
+    /\/(?:large|mw690|orj360|bmiddle)\/([^./?#]+)\.(?:jpe?g|png|gif|webp)/i
+  )
+  if (m?.[1] && m[1].length > 8) return m[1]
+  return null
+}
+
+const V5_PAY_SETTING_DEFAULT_OBJ = {
+  ispay: 0,
+  isvclub: 0,
+  is_single_pay: 0,
+  single_price: 0
+} as const
+const V5_PAY_SETTING_DEFAULT_JSON = JSON.stringify(V5_PAY_SETTING_DEFAULT_OBJ)
 
 /** 与编辑器展示一致：YYYY-MM-DD HH:mm:ss（本地时间） */
 function weiboDraftUpdatedTimestamp (): string {
@@ -218,9 +238,6 @@ function injectTitleHtmlIntoDraftTree (
   visit(root)
   if (!nonEmptyStr(root.title)) root.title = title
   if (!nonEmptyStr(root.content)) root.content = html
-  if ('free_content' in root && !nonEmptyStr(root.free_content)) {
-    root.free_content = html
-  }
   if (!nonEmptyStr(root.summary)) root.summary = excerpt || title
   if (coverPid && !nonEmptyStr(root.cover)) root.cover = coverPid
 }
@@ -250,7 +267,7 @@ function buildSyntheticV5DraftShell (draftId: string): Record<string, unknown> {
     cover: '',
     summary: '',
     writer: '',
-    extra: null,
+    extra: [],
     type: '',
     is_word: 0,
     is_markdown: 0,
@@ -265,8 +282,8 @@ function buildSyntheticV5DraftShell (draftId: string): Record<string, unknown> {
     only_render_h5: 0,
     is_ai_plugins: 0,
     is_aigc_used: 0,
-    /** PC v5 编辑器空稿抓包为 is_v4=0 */
-    is_v4: 0,
+    /** 成功保存抓包多为 is_v4=1（ver=4.0 编辑器） */
+    is_v4: 1,
     follow_to_read: 0,
     follow_to_read_detail: {
       result: 0,
@@ -281,10 +298,9 @@ function buildSyntheticV5DraftShell (draftId: string): Record<string, unknown> {
     isreward: 0,
     isreward_tips: '',
     isreward_tips_url: '',
-    /** 抓包为 pay_setting=[]，非对象 */
-    pay_setting: [],
+    pay_setting: { ...V5_PAY_SETTING_DEFAULT_OBJ },
     source: '',
-    action: 0,
+    action: 2,
     is_single_pay_new: 0,
     money: 0,
     is_vclub_single_pay: 0,
@@ -339,21 +355,32 @@ function buildV5BrowserFlatSaveBody (
     'updated',
     typeof upd === 'string' && nonEmptyStr(upd) ? upd : weiboDraftUpdatedTimestamp()
   )
-  /** v5 草稿在后台/列表常读 free_content；此前写空会导致「只有空草稿」且 publish 校验失败 */
+  /** 成功抓包：free_content 常为空，正文仅在 content */
   const free =
     typeof shell.free_content === 'string' && nonEmptyStr(shell.free_content)
       ? shell.free_content
-      : opts.html
+      : ''
   p.set('free_content', free)
   p.set('content', opts.html)
+  const coverTrim = opts.cover.trim()
   p.set('cover', opts.cover)
+  const coverPidFlat = extractWeiboLargePidFromCoverUrl(coverTrim)
+  if (coverPidFlat) {
+    p.set('cover_pid', coverPidFlat)
+  } else if (
+    coverTrim.length > 12 &&
+    /^[a-z0-9]+$/i.test(coverTrim) &&
+    !/^https?:\/\//i.test(coverTrim)
+  ) {
+    /** 图床仅返回 pid 时与 cover 同写入 cover_pid */
+    p.set('cover_pid', coverTrim)
+  }
   p.set('summary', opts.summary)
   p.set('writer', typeof shell.writer === 'string' ? shell.writer : '')
-  /** 抓包为 extra=null（表单值为字面值 null） */
   if (typeof shell.extra === 'string') {
     p.set('extra', shell.extra)
   } else if (shell.extra == null) {
-    p.set('extra', 'null')
+    p.set('extra', '[]')
   } else {
     p.set('extra', JSON.stringify(shell.extra))
   }
@@ -377,13 +404,10 @@ function buildV5BrowserFlatSaveBody (
   p.set('only_render_h5', String(shell.only_render_h5 ?? 0))
   p.set('is_ai_plugins', String(shell.is_ai_plugins ?? 0))
   p.set('is_aigc_used', String(shell.is_aigc_used ?? 0))
-  /** 与 v5 编辑器抓包一致，默认 0（勿用 ?? 1） */
-  p.set('is_v4', String(shell.is_v4 ?? 0))
-  /**
-   * 平台配置：articleFollowersOnlyFullText !== false 视为「仅粉丝读全文」→ follow_to_read=1。
-   * 勿使用 Number(shell.follow_to_read)||1，否则 shell 为 0 时会被错误置为 1。
-   */
-  const followRead = opts.followersOnlyFullText === false ? 0 : 1
+  /** 成功保存抓包多为 is_v4=1 */
+  p.set('is_v4', String(shell.is_v4 ?? 1))
+  /** 抓包默认 follow_to_read=0；仅配置 articleFollowersOnlyFullText===true 时为 1 */
+  const followRead = opts.followersOnlyFullText === true ? 1 : 0
   p.set('follow_to_read', String(followRead))
   const ftr = shell.follow_to_read_detail
   /** follow_to_read=0 时抓包为 result=0；为 1 时一般为 result=1 */
@@ -431,17 +455,15 @@ function buildV5BrowserFlatSaveBody (
     typeof shell.isreward_tips_url === 'string' &&
       nonEmptyStr(shell.isreward_tips_url)
       ? String(shell.isreward_tips_url)
-      : `https://card.weibo.com/article/v3/aj/editor/draft/applyisrewardtips?uid=${opts.uid}`
+      : `https://card.weibo.com/article/v3/aj/editor/draft/applyisrewardtips?uid${opts.uid}`
   )
   const ps = shell.pay_setting
   if (typeof ps === 'string' && nonEmptyStr(ps)) {
     p.set('pay_setting', ps)
-  } else if (Array.isArray(ps)) {
-    p.set('pay_setting', JSON.stringify(ps))
-  } else if (ps && typeof ps === 'object') {
+  } else if (ps && typeof ps === 'object' && !Array.isArray(ps)) {
     p.set('pay_setting', JSON.stringify(ps))
   } else {
-    p.set('pay_setting', '[]')
+    p.set('pay_setting', V5_PAY_SETTING_DEFAULT_JSON)
   }
   p.set(
     'source',
@@ -451,7 +473,7 @@ function buildV5BrowserFlatSaveBody (
         ? shell.source
         : ''
   )
-  p.set('action', String(shell.action ?? 0))
+  p.set('action', String(shell.action ?? 2))
   p.set('is_single_pay_new', String(shell.is_single_pay_new ?? 0))
   p.set('money', String(shell.money ?? 0))
   p.set('is_vclub_single_pay', String(shell.is_vclub_single_pay ?? 0))
@@ -468,7 +490,7 @@ function buildV5BrowserFlatSaveBody (
 }
 
 /**
- * v5 编辑器点击「发布」：URL 为 publish?uid&id&_rid，body 为同步到微博的卡片文案与开关（非 save 形态）。
+ * v5 编辑器点击「发布」：URL 为 publish?uid&id&_rid（_rid 仅在 query，不在 body）；body 与抓包一致。
  */
 function buildV5CardSyncPublishFlatBody (
   draftId: string,
@@ -491,6 +513,7 @@ function buildV5CardSyncPublishFlatBody (
     : textVariant === 'plus'
       ? `发布了头条文章：《${t}》+ `
       : `发布了头条文章：《${t}》 `
+  /** 字段顺序与 card v5 draft/publish 抓包一致 */
   const p = new URLSearchParams()
   p.set('rank', '0')
   p.set('mblog_statement', publishOpts?.mblogStatement ?? '0')
@@ -503,14 +526,16 @@ function buildV5CardSyncPublishFlatBody (
   p.set('timestamp', '')
   p.set('only_render_h5', '0')
   p.set('is_aigc_used', '0')
+  /** 与 save/publish 抓包一致：默认 0；仅显式 true 时为 1 */
   p.set(
     'follow_to_read',
-    publishOpts?.followToRead === false ? '0' : '1'
+    publishOpts?.followToRead === true ? '1' : '0'
   )
   p.set('mpkey', '0')
   p.set('uid', String(uid))
   p.set('ver', '4.0')
   p.set('support_all_tag', '1')
+  /** 线上抓包常见无 st；仍保留带 st 的重试以兼容部分会话 */
   if (xsrf) p.set('st', xsrf)
   return p.toString()
 }
@@ -607,6 +632,21 @@ function wrapArticleHtml (fragment: string): string {
   if (!t) return '<p></p>'
   if (/^<[a-z]/i.test(t) && t.includes('>')) return t
   return `<div class="article-content">${t}</div>`
+}
+
+/**
+ * 封面 URL 既写入 save 表单的 cover，也应出现在正文首部；
+ * 部分环境仅写字段不会在时间线/文末展示缩略图，与 PC 编辑器「文内首图」一致。
+ */
+function articleBodyHtmlWithCoverFirst (
+  html: string,
+  coverAbsoluteUrl: string
+): string {
+  const u = coverAbsoluteUrl.trim()
+  if (!u || !/^https:\/\//i.test(u)) return html
+  const esc = u.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+  if (html.includes(u) || html.includes(esc)) return html
+  return `<p><img src="${esc}" alt="cover" /></p>\n${html}`
 }
 
 /** 从 v5 等 JSON 文本中用正则兜底抽出链接/长数字 id（data 为空数组时常见） */
@@ -826,9 +866,11 @@ async function tryPublishWeiboArticleV5DraftFlow (
   html: string,
   coverPid: string,
   log: string[],
-  articleCfg?: WeiboHeadlinePublishInput
+  articleCfg?: WeiboHeadlinePublishInput,
+  /** draft 创建后、与 card 同会话再传封面（解决先发博成功但 cover 始终空） */
+  coverRetry?: { part?: ImagePart; url?: string }
 ): Promise<HeadlineArticlePublishResult | null> {
-  const coverField = normalizeWeiboV5CoverForSave(coverPid)
+  /** PC 抓包：v5 aj 请求的 Referer 多为编辑器路径本身，勿随意加 query（加 uid/id 后曾在部分账号上稳定 500002） */
   const referer = `${cardBase}${V5_EDITOR_PATH}`
   const baseHeaders = (): Record<string, string> => {
     const h: Record<string, string> = {
@@ -886,6 +928,38 @@ async function tryPublishWeiboArticleV5DraftFlow (
   }
   const draftId = created.draftId
 
+  let effectiveCoverPid = coverPid.trim()
+  const hasUsableCover = (): boolean =>
+    !!normalizeWeiboV5CoverForSave(effectiveCoverPid).trim()
+  const bumpCoverFromRetry = async (): Promise<void> => {
+    if (hasUsableCover()) return
+    if (coverRetry?.part?.buffer?.length) {
+      const up = await uploadOneWeiboPicB64(userId, coverRetry.part, {
+        preferV5EditorCover: true
+      })
+      if (up.ok) effectiveCoverPid = up.pid
+    }
+    if (!hasUsableCover() && coverRetry?.url?.trim()) {
+      const part = await loadImagePartForWeibo(coverRetry.url.trim())
+      if (part) {
+        const up = await uploadOneWeiboPicB64(userId, part, {
+          preferV5EditorCover: true
+        })
+        if (up.ok) effectiveCoverPid = up.pid
+      }
+    }
+  }
+  await bumpCoverFromRetry()
+  if (!hasUsableCover()) {
+    await new Promise((r) => setTimeout(r, 500))
+    await bumpCoverFromRetry()
+  }
+  const coverField = normalizeWeiboV5CoverForSave(effectiveCoverPid)
+  const bodyHtml = articleBodyHtmlWithCoverFirst(html, coverField)
+  if (!coverField.trim()) {
+    log.push('v5: 无封面 URL（图床失败或未传图），仅发正文')
+  }
+
   const { raw: loadRawCaptured, draft: loadDraft } = await fetchV5DraftLoadRaw(
     cardBase,
     uid,
@@ -903,22 +977,27 @@ async function tryPublishWeiboArticleV5DraftFlow (
       injectTitleHtmlIntoDraftTree(
         full.draft as Record<string, unknown>,
         titleTrim,
-        html,
+        bodyHtml,
         coverField
       )
     } else {
-      injectTitleHtmlIntoDraftTree(full, titleTrim, html, coverField)
+      injectTitleHtmlIntoDraftTree(full, titleTrim, bodyHtml, coverField)
     }
     savePayloads.push(full)
   }
 
-  const fromLoad = buildSavePayloadFromLoad(loadDraft, titleTrim, html, coverField)
+  const fromLoad = buildSavePayloadFromLoad(
+    loadDraft,
+    titleTrim,
+    bodyHtml,
+    coverField
+  )
   if (fromLoad) {
     savePayloads.push(fromLoad)
   }
   if (!envelope && !fromLoad) {
     const syn = buildSyntheticV5DraftShell(draftId)
-    injectTitleHtmlIntoDraftTree(syn, titleTrim, html, coverField)
+    injectTitleHtmlIntoDraftTree(syn, titleTrim, bodyHtml, coverField)
     savePayloads.unshift(syn)
     log.push(
       'v5: draft/load 无有效 data（浏览器直开常为 100001），已用与线上一致的合成草稿壳提交 save'
@@ -929,12 +1008,16 @@ async function tryPublishWeiboArticleV5DraftFlow (
     `${cardBase}${V5_AJ_BASE}/draft/save?uid=${encodeURIComponent(uid)}&id=${encodeURIComponent(draftId)}&_rid=${encodeURIComponent(makeArticleV5Rid())}`
 
   let saveAnyOk = false
+  /** 用于发布前再 save 一次，缓解「请手动保存后提交」类 500002 */
+  let shellForRepublish: Record<string, unknown> | null = null
 
-  const summaryPlain = plainTextExcerpt(html, 400) || titleTrim
+  const summaryPlain = plainTextExcerpt(bodyHtml, 400) || titleTrim
   const seenFlat = new Set<string>()
   for (const sp of savePayloads) {
     const shell = v5SaveRecordForFlatPayload(sp, draftId)
     if (!shell) continue
+    /** load 下来的 shell 可能不带 cover，与扁平表单 cover 强制对齐 */
+    if (coverField) shell.cover = coverField
     if (articleCfg?.articleColumnName?.trim()) {
       shell.source = articleCfg.articleColumnName.trim()
     }
@@ -950,7 +1033,7 @@ async function tryPublishWeiboArticleV5DraftFlow (
         draftId,
         uid,
         title: titleTrim,
-        html,
+        html: bodyHtml,
         summary: summaryPlain,
         cover: coverField,
         rid,
@@ -971,6 +1054,7 @@ async function tryPublishWeiboArticleV5DraftFlow (
         const sRaw = await sRes.text()
         if (v5SuccessJson(sRaw)) {
           saveAnyOk = true
+          shellForRepublish = JSON.parse(JSON.stringify(shell)) as Record<string, unknown>
           break
         }
         log.push(
@@ -1050,6 +1134,11 @@ async function tryPublishWeiboArticleV5DraftFlow (
         const sRaw = await sRes.text()
         if (v5SuccessJson(sRaw)) {
           saveAnyOk = true
+          const flat = v5SaveRecordForFlatPayload(sp, draftId)
+          if (flat) {
+            if (coverField) flat.cover = coverField
+            shellForRepublish = flat
+          }
           break
         }
         log.push(
@@ -1065,6 +1154,41 @@ async function tryPublishWeiboArticleV5DraftFlow (
   }
   if (!saveAnyOk) {
     log.push('v5 draft/save：未收到 code=100000，仍尝试 publish')
+  } else if (shellForRepublish) {
+    if (coverField) shellForRepublish.cover = coverField
+    const ridLock = makeArticleV5Rid()
+    const lockBody = buildV5BrowserFlatSaveBody(shellForRepublish, {
+      draftId,
+      uid,
+      title: titleTrim,
+      html: bodyHtml,
+      summary: summaryPlain,
+      cover: coverField,
+      rid: ridLock,
+      xsrf,
+      articleSource: articleCfg?.articleColumnName?.trim(),
+      followersOnlyFullText: articleCfg?.articleFollowersOnlyFullText
+    })
+    try {
+      const sRes = await fetch(makeSaveUrl(), {
+        method: 'POST',
+        headers: {
+          ...baseHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+        },
+        body: lockBody,
+        cache: 'no-store'
+      })
+      const sRaw = await sRes.text()
+      if (!v5SuccessJson(sRaw)) {
+        log.push(`v5 发布前终态 save HTTP ${sRes.status}: ${sRaw.slice(0, 160)}`)
+      }
+    } catch (e) {
+      log.push(
+        `v5 发布前终态 save: ${e instanceof Error ? e.message : String(e)}`
+      )
+    }
+    await new Promise((r) => setTimeout(r, 900))
   }
 
   const tryPublishGetPost = async (): Promise<HeadlineArticlePublishResult | null> => {
@@ -1135,31 +1259,38 @@ async function tryPublishWeiboArticleV5DraftFlow (
     }
 
     const customStatus = optionalTrim(articleCfg?.articleWeiboStatusText)
+    /** 默认同步抓包：多为「…》+ 」的 plus 形态在前 */
     const textVars = customStatus
       ? (['space'] as const)
-      : (['space', 'plus'] as const)
-    for (const syncWb of ['0', '1'] as const) {
-      const cardPublishOpts = {
-        statusTextOverride: customStatus,
-        mblogStatement: articleCfg?.articleContentDeclaration ?? '0',
-        followToRead: articleCfg?.articleFollowersOnlyFullText !== false,
-        syncWb
-      }
-      for (const textVar of textVars) {
-        for (const withSt of [false, true] as const) {
-          if (withSt && !xsrf) continue
-          const ok = await postPublish(
-            `publish card-sync sync_wb=${syncWb} text=${textVar}${withSt ? '+st' : ''}`,
-            buildV5CardSyncPublishFlatBody(
-              draftId,
-              uid,
-              titleTrim,
-              withSt ? xsrf : null,
-              textVar,
-              cardPublishOpts
+      : (['plus', 'space'] as const)
+    /** 先尝试全文公开 follow_to_read=0，部分账号仅粉丝全文时 publish 恒 500002 */
+    const followPasses: boolean[] =
+      articleCfg?.articleFollowersOnlyFullText === false ? [false] : [false, true]
+    for (const followToRead of followPasses) {
+      for (const syncWb of ['0', '1'] as const) {
+        const cardPublishOpts = {
+          statusTextOverride: customStatus,
+          mblogStatement: articleCfg?.articleContentDeclaration ?? '0',
+          followToRead,
+          syncWb
+        }
+        for (const textVar of textVars) {
+          /** 先无 st（与常见抓包一致），再带 st */
+          for (const withSt of [false, true] as const) {
+            if (withSt && !xsrf) continue
+            const ok = await postPublish(
+              `publish fr=${followToRead ? 1 : 0} sync_wb=${syncWb} text=${textVar}${withSt ? '+st' : ''}`,
+              buildV5CardSyncPublishFlatBody(
+                draftId,
+                uid,
+                titleTrim,
+                withSt ? xsrf : null,
+                textVar,
+                cardPublishOpts
+              )
             )
-          )
-          if (ok?.ok) return ok
+            if (ok?.ok) return ok
+          }
         }
       }
     }
@@ -1201,6 +1332,8 @@ export async function tryPublishWeiboHeadlineArticle (
   title: string,
   markdown: string,
   options?: {
+    /** 服务端已有二进制（如统一发布接口上传的封面）时优先，避免依赖 HTTP 再拉 /content-images */
+    coverImagePart?: ImagePart
     coverImageUrl?: string
     weiboPublish?: WeiboHeadlinePublishInput
   }
@@ -1219,15 +1352,6 @@ export async function tryPublishWeiboHeadlineArticle (
     cookieHeaderForUrl('https://weibo.com/', cookies)
   if (!cookieHeader) {
     return { ok: false, error: '无法为 card.weibo / weibo.com 拼 Cookie' }
-  }
-
-  let coverPid = ''
-  if (options?.coverImageUrl?.trim()) {
-    const part = await loadImagePartForWeibo(options.coverImageUrl.trim())
-    if (part) {
-      const up = await uploadOneWeiboPicB64(userId, part)
-      if (up.ok) coverPid = up.pid
-    }
   }
 
   const html = wrapArticleHtml(markdownToHtml(mdTrim))
@@ -1258,6 +1382,41 @@ export async function tryPublishWeiboHeadlineArticle (
     xsrf = await resolveXsrf(cookies, cookieHeader)
   }
 
+  /** 与 v5 同一会话就绪后再上图床，避免过早上传被风控或 Cookie 未完全生效 */
+  let coverPid = ''
+  const uploadCover = async (part: ImagePart) => {
+    const up = await uploadOneWeiboPicB64(userId, part, {
+      preferV5EditorCover: true
+    })
+    if (up.ok) coverPid = up.pid
+  }
+  if (options?.coverImagePart?.buffer?.length) {
+    await uploadCover(options.coverImagePart)
+  }
+  if (!coverPid && options?.coverImageUrl?.trim()) {
+    const part = await loadImagePartForWeibo(options.coverImageUrl.trim())
+    if (part) await uploadCover(part)
+  }
+  if (
+    !coverPid &&
+    (options?.coverImagePart?.buffer?.length || options?.coverImageUrl?.trim())
+  ) {
+    await new Promise((r) => setTimeout(r, 450))
+    if (options?.coverImagePart?.buffer?.length) {
+      await uploadCover(options.coverImagePart)
+    }
+    if (!coverPid && options?.coverImageUrl?.trim()) {
+      const part = await loadImagePartForWeibo(options.coverImageUrl.trim())
+      if (part) await uploadCover(part)
+    }
+  }
+
+  const coverNormForPayloads = normalizeWeiboV5CoverForSave(coverPid)
+  const htmlWithCoverForLegacy = articleBodyHtmlWithCoverFirst(
+    html,
+    coverNormForPayloads
+  )
+
   const profileEarly = readWeiboPlaywrightProfile(userId)
   const uidForArticle = profileEarly?.weiboUid?.replace(/\D/g, '') ?? ''
   const attempts: string[] = []
@@ -1277,7 +1436,11 @@ export async function tryPublishWeiboHeadlineArticle (
         html,
         coverPid,
         v5Log,
-        options?.weiboPublish
+        options?.weiboPublish,
+        {
+          part: options?.coverImagePart,
+          url: options?.coverImageUrl?.trim() || undefined
+        }
       )
       v5Logs.push(`${cardBase}: ${v5Log.join('; ')}`)
       if (v5?.ok) return v5
@@ -1295,7 +1458,7 @@ export async function tryPublishWeiboHeadlineArticle (
   const dataPayloads = [
     {
       title: titleTrim,
-      content: html,
+      content: htmlWithCoverForLegacy,
       status: 1,
       editor_version: 2,
       cover: coverPid,
@@ -1308,7 +1471,7 @@ export async function tryPublishWeiboHeadlineArticle (
     },
     {
       title: titleTrim,
-      content: html,
+      content: htmlWithCoverForLegacy,
       status: 1,
       editor_version: 3,
       cover: coverPid,
@@ -1321,13 +1484,13 @@ export async function tryPublishWeiboHeadlineArticle (
     },
     {
       title: titleTrim,
-      content: html,
+      content: htmlWithCoverForLegacy,
       status: 1,
       cover: coverPid
     },
     {
       title: titleTrim,
-      content: html,
+      content: htmlWithCoverForLegacy,
       status: 1,
       editor_version: 2,
       cover: coverPid,

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 统一发布服务
  * 将平台配置与各平台发布方法结合，提供统一的发布接口
  */
@@ -6,11 +6,10 @@
 import { prisma } from '@/lib/db/prisma'
 import { Platform } from '@/types/platform.types'
 import { markdownToHtml, toPlainText } from '@/lib/utils/markdown-to-html'
-import { WechatAdapter } from '@/lib/platforms/wechat/wechat-adapter'
-import { WechatTokenService } from '@/lib/services/wechat-token.service'
-import { WechatConfigService } from '@/lib/services/wechat-config.service'
 import { PlatformConfigService } from '@/lib/services/platform-config.service'
 import { WeiboAdapter } from '@/lib/platforms/weibo/weibo-adapter'
+import { WechatAdapter } from '@/lib/platforms/wechat/wechat-adapter'
+import { wechatTokenService } from '@/lib/services/wechat-token.service'
 import { decrypt } from '@/lib/utils/encryption'
 import { decryptWeiboToken } from '@/lib/utils/weibo-token-crypto'
 import { isTokenExpired } from '@/lib/platforms/weibo/weibo-utils'
@@ -19,17 +18,25 @@ import type {
   WeiboPublishConfigData
 } from '@/types/platform-config.types'
 import { isWeiboConfig } from '@/types/platform-config.types'
-import { isWeiboBrowserSessionAccount } from '@/lib/platforms/connection-kind'
+import {
+  isWeiboBrowserSessionAccount,
+  isWechatBrowserSessionAccount
+} from '@/lib/platforms/connection-kind'
 import {
   NonOfficialPublishService,
   type WeiboSessionPostInsights
 } from '@/lib/services/non-official-publish.service'
 import { absoluteUrlsForContent } from '@/lib/utils/content-image-urls'
+import type { ImagePart } from '@/lib/weibo-playwright/weibo-web-pic-upload'
+import {
+  effectiveWeiboContentTypeFromRecord,
+  weiboPublishBodyTextFallback
+} from '@/lib/utils/weibo-publish-content'
 
 export interface UnifiedPublishInput {
   userId: string
   platform: Platform
-  /** 账号ID：WECHAT=WechatAccountConfig.id, WEIBO=PlatformAccount.id */
+  /** 账号ID：均为 PlatformAccount.id */
   accountId: string
   /** 作品/草稿 ID，写入 PublishJob 与发布记录 */
   contentId?: string
@@ -43,6 +50,10 @@ export interface UnifiedPublishInput {
     filename: string
     contentType: string
   }
+  /**
+   * 会话型发布成功时是否跳过将 Content 标为 PUBLISHED（多平台同批发布用，结束后由前端统一 PATCH）。
+   */
+  deferContentPublishedUpdate?: boolean
 }
 
 export interface UnifiedPublishResult {
@@ -61,6 +72,31 @@ export interface UnifiedPublishResult {
 
 export class PublishService {
   /**
+   * 微信公众号发布配置（作者、阅读原文等），官方接口与浏览器发文共用。
+   */
+  private static async resolveWechatPublishExtras (
+    userId: string,
+    publishConfigId: string | undefined
+  ): Promise<{ author: string; contentSourceUrl: string }> {
+    let author = ''
+    let contentSourceUrl = ''
+    if (publishConfigId) {
+      const publishConfig = await PlatformConfigService.getConfigById(
+        publishConfigId,
+        userId
+      )
+      if (publishConfig?.platform === Platform.WECHAT) {
+        const data = publishConfig.configData as WechatPublishConfigData
+        if (data.type === 'wechat') {
+          author = data.author || ''
+          contentSourceUrl = data.contentSourceUrl || ''
+        }
+      }
+    }
+    return { author: author.trim(), contentSourceUrl: contentSourceUrl.trim() }
+  }
+
+  /**
    * 统一发布入口：根据平台路由到对应的发布实现
    */
   static async publish(input: UnifiedPublishInput): Promise<UnifiedPublishResult> {
@@ -78,83 +114,188 @@ export class PublishService {
   }
 
   /**
-   * 微信公众号发布：配置项 + 微信发布逻辑
+   * 微信公众号发布（双轨，编排步骤一致）：
+   * 1）上传封面素材；2）写入图文（草稿/operate_appmsg）；3）发布/群发。
+   * - **浏览器会话**：逆向 mp 网页 cgi（operate_appmsg + masssend），走异步 PublishJob。
+   * - **开发者凭证**：官方 draft/add + freepublish/submit（WechatAdapter 内已轮询结果），同步完成。
    */
   private static async publishWechat(input: UnifiedPublishInput): Promise<UnifiedPublishResult> {
-    const { userId, accountId, publishConfigId, title, content, coverImage } = input
+    const {
+      userId,
+      accountId,
+      publishConfigId,
+      title,
+      content,
+      coverImage,
+      contentId,
+      deferContentPublishedUpdate
+    } = input
 
-    if (!coverImage) {
-      return { success: false, error: '封面图片不能为空' }
-    }
-
-    // 1. 验证微信配置（accountId = WechatAccountConfig id）
-    const configService = new WechatConfigService()
-    const config = await configService.getConfigById(accountId, userId)
-    if (!config) {
-      return { success: false, error: '配置不存在或无权访问' }
-    }
-    if (!config.isActive) {
-      return { success: false, error: '配置已禁用，请先激活配置' }
-    }
-    if (config.subjectType === 'personal' || !config.canPublish) {
-      return { success: false, error: '个人主体公众号不支持发布功能' }
-    }
-
-    // 2. 从 PlatformPublishConfig 获取作者、原文链接等配置项
-    let author = ''
-    let contentSourceUrl = ''
-    if (publishConfigId) {
-      const publishConfig = await PlatformConfigService.getConfigById(publishConfigId, userId)
-      if (publishConfig && publishConfig.platform === Platform.WECHAT) {
-        const data = publishConfig.configData as WechatPublishConfigData
-        if (data.type === 'wechat') {
-          author = data.author || ''
-          contentSourceUrl = data.contentSourceUrl || ''
-        }
-      }
-    }
-
-    // 3. 获取 access_token
-    const tokenService = new WechatTokenService()
-    const accessToken = await tokenService.getOrRefreshToken(userId, accountId)
-    if (!accessToken) {
-      return { success: false, error: '获取 access_token 失败' }
-    }
-
-    // 4. 调用微信适配器发布
-    const adapter = new WechatAdapter({
-      appId: config.appId,
-      appSecret: '',
-      redirectUri: '',
+    const platformAccount = await prisma.platformAccount.findUnique({
+      where: { id: accountId }
     })
+    if (!platformAccount || platformAccount.userId !== userId) {
+      return { success: false, error: '平台账号不存在或无权访问' }
+    }
+    if (platformAccount.platform !== Platform.WECHAT) {
+      return { success: false, error: '账号类型错误' }
+    }
+    if (!platformAccount.isConnected) {
+      return { success: false, error: '账号未连接' }
+    }
 
     const htmlContent = markdownToHtml(content.trim())
     const digest = toPlainText(htmlContent, 120)
-    const result = await adapter.publish(accessToken, {
-      text: htmlContent,
-      title: title.trim(),
-      author: author.trim(),
-      digest,
-      contentSourceUrl: contentSourceUrl.trim(),
-      thumbImage: {
-        buffer: coverImage.buffer,
-        filename: coverImage.filename,
-        contentType: coverImage.contentType,
-      },
-    })
+    const { author, contentSourceUrl } = await this.resolveWechatPublishExtras(
+      userId,
+      publishConfigId
+    )
 
-    if (!result.success) {
+    /** --- 轨道 A：本机浏览器登录 mp（逆向网页接口）--- */
+    if (isWechatBrowserSessionAccount(platformAccount)) {
+      let coverUrl: string | undefined
+      if (contentId) {
+        const c = await prisma.content.findUnique({ where: { id: contentId } })
+        if (c) {
+          const urls = absoluteUrlsForContent(
+            process.env.NEXT_PUBLIC_BASE_URL,
+            c.coverImage,
+            c.images
+          )
+          coverUrl = urls?.[0]
+        }
+      }
+      if (!coverUrl) {
+        return {
+          success: false,
+          error:
+            '浏览器发文需要草稿带封面，且封面地址需可被微信服务器访问（配置 NEXT_PUBLIC_BASE_URL / INTERNAL_MEDIA_BASE_URL）'
+        }
+      }
+
+      const r = await NonOfficialPublishService.publishWechatBrowserSession({
+        userId,
+        platformAccountId: accountId,
+        plainText: content.trim(),
+        htmlBody: htmlContent,
+        title: title.trim() || '未命名',
+        digest,
+        coverImageUrl: coverUrl,
+        contentSourceUrl,
+        author,
+        contentId,
+        source: 'unified_publish',
+        deferContentPublishedUpdate,
+        coverFallback:
+          coverImage != null
+            ? {
+                buffer: coverImage.buffer,
+                filename: coverImage.filename,
+                contentType: coverImage.contentType
+              }
+            : undefined
+      })
+
+      if (!r.success) {
+        return {
+          success: false,
+          error: r.error,
+          message: r.message,
+          jobId: r.jobId,
+          requiresJobPolling: !!r.jobId
+        }
+      }
+
+      return {
+        success: true,
+        jobId: r.jobId,
+        requiresJobPolling: true,
+        message: r.message,
+        platformPostId: r.platformPostId,
+        publishedUrl: r.publishedUrl
+      }
+    }
+
+    /** --- 轨道 B：AppID + AppSecret（开放平台图文接口）--- */
+    const cfgId =
+      (platformAccount as typeof platformAccount & {
+        wechatAccountConfigId?: string | null
+      }).wechatAccountConfigId ?? null
+    const cfg =
+      cfgId != null
+        ? await prisma.wechatAccountConfig.findFirst({
+            where: { id: cfgId, userId }
+          })
+        : null
+    if (!cfg || !cfgId) {
       return {
         success: false,
-        error: result.error,
+        error:
+          '请使用「本机浏览器」在账号管理中绑定微信公众平台，或配置有效的 AppID / AppSecret 开发者凭证'
+      }
+    }
+    if (!cfg.isActive) {
+      return { success: false, error: '微信开发者配置已停用，请在后台重新启用' }
+    }
+    if (!cfg.canPublish) {
+      return {
+        success: false,
+        error:
+          '当前凭证对应公众号为个人主体或未标记为可发布，官方接口无法 submit。可改用「本机浏览器」绑定后走网页发文'
+      }
+    }
+    if (!coverImage?.buffer?.length) {
+      return {
+        success: false,
+        error: '官方接口发布须上传封面图（multipart 中的 image）'
+      }
+    }
+
+    let accessToken: string
+    try {
+      accessToken = await wechatTokenService.getOrRefreshToken(userId, cfg.id)
+    } catch (e) {
+      return {
+        success: false,
+        error: `获取微信公众平台 access_token 失败：${e instanceof Error ? e.message : String(e)}`
+      }
+    }
+
+    const adapter = new WechatAdapter({
+      appId: cfg.appId,
+      appSecret: '',
+      redirectUri: ''
+    })
+
+    const publishResult = await adapter.publish(accessToken, {
+      title: title.trim() || '未命名',
+      text: htmlContent,
+      author: author || undefined,
+      digest: digest || undefined,
+      contentSourceUrl: contentSourceUrl || undefined,
+      thumbImage: {
+        buffer: coverImage.buffer,
+        filename: coverImage.filename || 'cover.jpg',
+        contentType: coverImage.contentType || 'image/jpeg'
+      }
+    })
+
+    if (!publishResult.success) {
+      return {
+        success: false,
+        error: publishResult.error || '微信官方接口发布失败',
+        message: publishResult.errorCode
       }
     }
 
     return {
       success: true,
-      platformPostId: result.platformPostId,
-      publishedUrl: result.publishedUrl,
-      message: '内容已成功发布到微信公众号',
+      requiresJobPolling: false,
+      platformPostId: publishResult.platformPostId,
+      publishedUrl: publishResult.publishedUrl,
+      message: publishResult.publishedUrl
+        ? `已通过官方接口发布：${publishResult.publishedUrl}`
+        : '已通过官方接口提交发布'
     }
   }
 
@@ -162,7 +303,16 @@ export class PublishService {
    * 微博发布：配置项 + 微博发布逻辑
    */
   private static async publishWeibo(input: UnifiedPublishInput): Promise<UnifiedPublishResult> {
-    const { userId, accountId, content, contentId, title, publishConfigId } = input
+    const {
+      userId,
+      accountId,
+      content,
+      contentId,
+      title,
+      publishConfigId,
+      coverImage,
+      deferContentPublishedUpdate
+    } = input
 
     let weiboPublishConfig: WeiboPublishConfigData | undefined
     if (publishConfigId) {
@@ -194,11 +344,18 @@ export class PublishService {
       let imageUrls: string[] | undefined
       let contentType: string | undefined
       let weiboTitle: string | undefined = title.trim() || undefined
+      let coverImagePart: ImagePart | undefined
+      if (coverImage?.buffer?.length) {
+        coverImagePart = {
+          buffer: coverImage.buffer,
+          mime: coverImage.contentType || 'image/jpeg'
+        }
+      }
       if (contentId) {
         const c = await prisma.content.findUnique({ where: { id: contentId } })
         if (c) {
           if (!weiboTitle && c.title) weiboTitle = c.title
-          contentType = c.contentType ?? undefined
+          contentType = effectiveWeiboContentTypeFromRecord(c)
           text = (c.content || text).trim()
           imageUrls = absoluteUrlsForContent(
             process.env.NEXT_PUBLIC_BASE_URL,
@@ -207,6 +364,11 @@ export class PublishService {
           )
         }
       }
+      text = weiboPublishBodyTextFallback({
+        text,
+        imageUrls,
+        title: weiboTitle
+      })
       if (!text) {
         return { success: false, error: '内容不能为空' }
       }
@@ -217,9 +379,11 @@ export class PublishService {
         contentId,
         source: 'unified_publish',
         imageUrls,
+        coverImagePart,
         title: weiboTitle,
         contentType,
-        weiboPublishConfig
+        weiboPublishConfig,
+        deferContentPublishedUpdate
       })
       if (!r.success) {
         return {

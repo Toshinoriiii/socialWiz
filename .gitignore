@@ -107,3 +107,5 @@ yarn-error.log*
 
 # Public (if contains uploaded sensitive content)
 public/
+# 任意路径下名为 sessions/ 的目录（微博/微信 Playwright Cookie 等，勿提交）
+sessions/

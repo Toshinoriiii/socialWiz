@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { WechatAdapter } from '@/lib/platforms/wechat/wechat-adapter'
 import { validateOAuthState } from '@/lib/utils/oauth-state'
 import { getPlatformConfig } from '@/config/platform.config'
@@ -68,6 +68,15 @@ export async function GET(request: NextRequest) {
     const stateData = await validateOAuthState(state, 'wechat')
     if (!stateData) {
       return createErrorPage('State验证失败')
+    }
+
+    const developerCfg = await prisma.wechatAccountConfig.findFirst({
+      where: { userId: stateData.userId }
+    })
+    if (developerCfg) {
+      return createErrorPage(
+        '已使用开发者凭证（AppID）绑定公众号，请先解绑后再使用网页授权'
+      )
     }
 
     // 获取配置

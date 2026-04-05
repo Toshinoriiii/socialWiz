@@ -14,14 +14,17 @@ function looksLikeHtml(text: string): boolean {
  * 将 Markdown 转为 HTML
  * - 若内容已是 HTML（含标签）则原样返回
  * - 否则用 marked 解析为 HTML，确保公众号中正确显示格式
+ * - **breaks: true**：与编辑器一致，单行 `\n` 输出为 `<br>`（默认 CommonMark 会合并成空格）
  */
 export function markdownToHtml(markdown: string): string {
   const trimmed = markdown?.trim() ?? ''
   if (!trimmed) return markdown || ''
   if (looksLikeHtml(trimmed)) return trimmed
   try {
-    marked.setOptions({ gfm: true })
-    const html = marked.parse(trimmed) as string
+    const html = marked.parse(trimmed, {
+      gfm: true,
+      breaks: true
+    }) as string
     return (html && html.trim()) || trimmed
   } catch {
     return trimmed

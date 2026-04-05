@@ -1,5 +1,6 @@
-import type { Platform } from '@/types/platform.types'
+﻿import type { Platform } from '@/types/platform.types'
 import type { WeiboPublishConfigData } from '@/types/platform-config.types'
+import type { ImagePart } from '@/lib/weibo-playwright/weibo-web-pic-upload'
 
 export type PublishPluginTransport = 'browser' | 'http_replay'
 
@@ -23,19 +24,34 @@ export interface PublishPluginResult {
 
 export type WeiboPublishExtras = {
   imageUrls?: string[]
+  /** 头条文章封面原始图（优先于 imageUrls 首图） */
+  coverImagePart?: ImagePart
   title?: string
   contentType?: string
   weiboPublishConfig?: WeiboPublishConfigData
 }
 
+/** 微信公众号网页会话发图文 */
+export type WechatPublishExtras = {
+  title?: string
+  htmlBody?: string
+  digest?: string
+  coverImageUrl?: string
+  contentSourceUrl?: string
+  author?: string
+  coverFallback?: { buffer: Buffer; filename: string; contentType: string }
+}
+
+export type PublishExtras = WeiboPublishExtras | WechatPublishExtras
+
 export interface PlatformPublishPlugin {
   readonly platform: Platform
   readonly transport: PublishPluginTransport
-  /** 发帖（微博支持 extras：图片 URL、标题、内容类型） */
+  /** 发帖；extras 按平台分支（微博 | 微信） */
   publishText(
     ctx: PublishPluginContext,
     text: string,
-    extras?: WeiboPublishExtras
+    extras?: PublishExtras
   ): Promise<PublishPluginResult>
 }
 

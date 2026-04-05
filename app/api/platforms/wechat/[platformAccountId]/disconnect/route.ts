@@ -1,10 +1,20 @@
+﻿import fs from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { AuthService } from '@/lib/services/auth.service'
+import { Platform } from '@/types/platform.types'
+import { wechatConfigService } from '@/lib/services/wechat-config.service'
+import {
+  getWechatPlaywrightProfilePath,
+  getWechatPlaywrightSessionPath,
+  isPlaywrightWeChatUserId
+} from '@/lib/wechat-playwright/session-files'
 
 /**
  * POST /api/platforms/wechat/[platformAccountId]/disconnect
- * 断开微信公众号账号连接
+ * Playwright：删会话文件 + 删账号行。
+ * 开发者凭证：删 WechatAccountConfig（级联删 PlatformAccount）。
+ * 其它 OAuth：清 token。
  */
 export async function POST(
   request: NextRequest,
@@ -45,7 +55,38 @@ export async function POST(
       )
     }
 
-    // 断开连接（清除 token，标记为未连接）
+    if (platformAccount.platform !== Platform.WECHAT) {
+      return NextResponse.json({ error: '非微信账号' }, { status: 400 })
+    }
+
+    if (isPlaywrightWeChatUserId(platformAccount.platformUserId)) {
+      try {
+        fs.unlinkSync(getWechatPlaywrightSessionPath(user.id))
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.unlinkSync(getWechatPlaywrightProfilePath(user.id))
+      } catch {
+        /* ignore */
+      }
+      await prisma.platformAccount.delete({
+        where: { id: platformAccountId }
+      })
+      return NextResponse.json({ success: true })
+    }
+
+    const wechatCfgId = (
+      platformAccount as typeof platformAccount & {
+        wechatAccountConfigId: string | null
+      }
+    ).wechatAccountConfigId
+
+    if (wechatCfgId) {
+      await wechatConfigService.deleteConfig(wechatCfgId, user.id)
+      return NextResponse.json({ success: true })
+    }
+
     await prisma.platformAccount.update({
       where: { id: platformAccountId },
       data: {

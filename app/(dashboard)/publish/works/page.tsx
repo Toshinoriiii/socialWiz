@@ -56,6 +56,16 @@ function draftThumbSrc (draft: Draft): string | null {
   return raw ? normalizeDraftThumbUrl(raw) : null
 }
 
+/** 与编辑跳转逻辑一致，用于展示「文章 / 图文」类型 */
+function effectiveDraftContentType (draft: Draft): 'article' | 'image-text' {
+  if (draft.contentType === 'image-text') return 'image-text'
+  if (draft.contentType === 'article') return 'article'
+  const hasImages = draft.images && draft.images.length > 0
+  const hasCoverImage = draft.coverImage && draft.coverImage.trim().length > 0
+  if (hasImages && !hasCoverImage) return 'image-text'
+  return 'article'
+}
+
 export default function WorksManagementPage() {
   const router = useRouter()
   const { token } = useUserStore()
@@ -222,6 +232,7 @@ export default function WorksManagementPage() {
             <div className="space-y-4">
               {drafts.map((draft, index) => {
                 const thumb = draftThumbSrc(draft) ?? DRAFT_LIST_PLACEHOLDER_IMG
+                const kind = effectiveDraftContentType(draft)
                 return (
                 <div key={draft.id}>
                   <div
@@ -242,11 +253,16 @@ export default function WorksManagementPage() {
                           {draft.title || '未命名作品'}
                         </h3>
                         {getStatusBadge(draft.status)}
-                        {draft.images && draft.images.length > 0 && (
-                          <Badge variant="outline" className="text-xs border-gray-300 text-gray-600">
-                            图文
-                          </Badge>
-                        )}
+                        <Badge
+                          variant="outline"
+                          className={
+                            kind === 'image-text'
+                              ? 'text-xs border-violet-200 bg-violet-50 text-violet-800'
+                              : 'text-xs border-sky-200 bg-sky-50 text-sky-800'
+                          }
+                        >
+                          {kind === 'image-text' ? '图文' : '文章'}
+                        </Badge>
                       </div>
                       <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
                         <div className="flex items-center gap-1">

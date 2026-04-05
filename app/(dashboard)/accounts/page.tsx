@@ -1,34 +1,21 @@
-'use client'
+﻿'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { MessageCircle, Link as LinkIcon, Unlink, Plus, AlertCircle, CheckCircle, Inbox } from 'lucide-react'
+import { Link as LinkIcon, Unlink, Plus, AlertCircle, CheckCircle, Inbox } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Input } from '@/components/ui/Input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { useUserStore } from '@/store/user.store'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
-import WechatConfigGuide from '@/components/dashboard/platforms/WechatConfigGuide'
 import { PlatformBrandLogo } from '@/components/dashboard/PlatformBrandLogo'
 import { isWeiboOauthUiEnabled } from '@/config/feature-flags'
 import { Platform } from '@/types/platform.types'
@@ -88,25 +75,16 @@ export default function AccountsPage() {
   const [connecting, setConnecting] = useState<string | null>(null)
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
   
-  // 弹窗状态
   const [platformSelectOpen, setPlatformSelectOpen] = useState(false)
-  const [wechatConfigOpen, setWechatConfigOpen] = useState(false)
-  
-  // 微信配置表单
-  const [wechatForm, setWechatForm] = useState({
-    appId: '',
-    appSecret: '',
-    accountName: '',
-    subjectType: 'personal' as 'personal' | 'enterprise'
-  })
-  const [submitting, setSubmitting] = useState(false)
 
   const [weiboBindOpen, setWeiboBindOpen] = useState(false)
+  const [wechatBindOpen, setWechatBindOpen] = useState(false)
   const [weiboPlaywrightPolling, setWeiboPlaywrightPolling] = useState(false)
-  /** 本轮绑定：是否曾出现 inProgress（锁存在）；用于区分「尚未开始」与「已结束未绑定」 */
+  const [wechatPlaywrightPolling, setWechatPlaywrightPolling] = useState(false)
   const weiboSawInProgressRef = useRef(false)
-  /** 本轮开始轮询的时间戳；用于用户极快关掉窗口时尚未拉到 inProgress 的兜底 */
   const weiboBindStartedAtRef = useRef(0)
+  const wechatSawInProgressRef = useRef(false)
+  const wechatBindStartedAtRef = useRef(0)
 
   const loadAccounts = async () => {
     if (!token) return
@@ -114,43 +92,15 @@ export default function AccountsPage() {
     try {
       setLoading(true)
       
-      // 并行获取OAuth平台账号和微信配置
-      const [platformsResponse, wechatResponse] = await Promise.all([
-        fetch('/api/platforms', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch('/api/platforms/wechat/config', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-      ])
+      const platformsResponse = await fetch('/api/platforms', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
 
       const allAccounts: PlatformAccount[] = []
 
-      // 处理OAuth平台账号
       if (platformsResponse.ok) {
         const platformData = await platformsResponse.json()
         allAccounts.push(...platformData)
-      }
-
-      // 处理微信配置
-      if (wechatResponse.ok) {
-        const wechatConfigs = await wechatResponse.json()
-        // 将微信配置转换为PlatformAccount格式
-        const wechatAccounts: PlatformAccount[] = wechatConfigs.map((config: any) => ({
-          id: config.id,
-          platform: 'WECHAT',
-          platformUsername: config.accountName || config.appId,
-          isConnected: config.isActive,
-          tokenExpiry: undefined,
-          needsReauth: false,
-          createdAt: config.createdAt,
-          // 微信特有字段
-          appId: config.appId,
-          accountName: config.accountName,
-          subjectType: config.subjectType,
-          canPublish: config.canPublish
-        }))
-        allAccounts.push(...wechatAccounts)
       }
 
       setAccounts(allAccounts)
@@ -289,15 +239,100 @@ export default function AccountsPage() {
     return () => window.clearInterval(id)
   }, [weiboPlaywrightPolling, token])
 
+  const startWechatPlaywrightBind = async () => {
+    if (!token) {
+      toast.error('未登录')
+      return
+    }
+    try {
+      setConnecting('WECHAT')
+      const r = await fetch('/api/platforms/wechat/playwright-bind', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await r.json()
+      if (!r.ok) {
+        const extra = [data.detail, data.hint].filter(Boolean).join('\n')
+        toast.error(
+          extra ? `${data.error || '启动失败'}\n${extra}` : data.error || '启动失败'
+        )
+        return
+      }
+      if (data.started === false) {
+        toast.warning(
+          data.message ||
+            '检测到已有进行中的绑定；若实际上没有登录窗口，请到 scripts/wechat-playwright/sessions 删除对应 .binding.lock 后重试。'
+        )
+        return
+      }
+      toast.message(data.message || '请在弹出的浏览器中登录微信公众平台')
+      wechatBindStartedAtRef.current = Date.now()
+      wechatSawInProgressRef.current = false
+      setWechatPlaywrightPolling(true)
+    } catch (error) {
+      console.error(error)
+      toast.error('网络错误,请重试')
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!wechatPlaywrightPolling || !token) return
+
+    const finishCancelled = () => {
+      wechatSawInProgressRef.current = false
+      setWechatPlaywrightPolling(false)
+      setWechatBindOpen(false)
+      toast.message('登录窗口已关闭，绑定已取消')
+    }
+
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/platforms/wechat/playwright-bind', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const data = await r.json()
+        if (!r.ok) return
+
+        if (data.bound) {
+          wechatSawInProgressRef.current = false
+          toast.success('微信公众号绑定成功')
+          setWechatPlaywrightPolling(false)
+          setWechatBindOpen(false)
+          void loadAccounts()
+          return
+        }
+
+        if (data.inProgress) {
+          wechatSawInProgressRef.current = true
+          return
+        }
+
+        const elapsed = Date.now() - wechatBindStartedAtRef.current
+        const definitelyEnded =
+          wechatSawInProgressRef.current || elapsed > 5000
+        if (definitelyEnded) {
+          finishCancelled()
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    void tick()
+    const id = window.setInterval(() => void tick(), 2000)
+    return () => window.clearInterval(id)
+  }, [wechatPlaywrightPolling, token])
+
   // 连接平台账号
   const handleConnect = async (platformId: string) => {
     const platform = platformConfig.find(p => p.id === platformId)
     if (!platform) return
 
-    // 微信平台使用配置表单
     if (platformId === 'WECHAT') {
-      setPlatformSelectOpen(false)
-      setWechatConfigOpen(true)
+      setWechatBindOpen(true)
+      void startWechatPlaywrightBind()
       return
     }
 
@@ -340,59 +375,6 @@ export default function AccountsPage() {
     }
   }
 
-  // 提交微信配置
-  const handleWechatSubmit = async () => {
-    if (!token) {
-      toast.error('未登录')
-      return
-    }
-
-    // 验证表单
-    if (!wechatForm.appId.trim()) {
-      toast.error('请输入AppID')
-      return
-    }
-    if (!wechatForm.appSecret.trim()) {
-      toast.error('请输入AppSecret')
-      return
-    }
-
-    try {
-      setSubmitting(true)
-      const response = await fetch('/api/platforms/wechat/config', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(wechatForm)
-      })
-
-      const data = await response.json()
-
-      if (response.ok) {
-        toast.success('微信公众号配置成功')
-        setWechatConfigOpen(false)
-        // 重置表单
-        setWechatForm({
-          appId: '',
-          appSecret: '',
-          accountName: '',
-          subjectType: 'personal'
-        })
-        // 刷新账号列表
-        await loadAccounts()
-      } else {
-        toast.error(data.error || '配置失败')
-      }
-    } catch (error) {
-      console.error('配置微信失败:', error)
-      toast.error('网络错误,请重试')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   // 解绑平台账号
   const handleDisconnect = async (accountId: string, platformName: string, platform: string) => {
     if (!token) {
@@ -407,18 +389,17 @@ export default function AccountsPage() {
     try {
       setDisconnecting(accountId)
       
-      // 微信平台使用不同的API路径
       let apiPath: string
       if (platform === 'WECHAT') {
-        apiPath = `/api/platforms/wechat/config/${accountId}`
+        apiPath = `/api/platforms/wechat/${accountId}/disconnect`
       } else if (platform === 'WEIBO') {
         apiPath = `/api/platforms/weibo/${accountId}/disconnect`
       } else {
         apiPath = `/api/platforms/${accountId}/disconnect`
       }
-      
+
       const response = await fetch(apiPath, {
-        method: platform === 'WECHAT' ? 'DELETE' : 'POST',
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -618,7 +599,7 @@ export default function AccountsPage() {
       <Alert className="border-blue-200 bg-blue-50">
         <AlertCircle className="size-4 text-blue-600" />
         <AlertDescription className="text-blue-800 text-sm">
-          <strong>提示：</strong>每个平台仅一个绑定。连接后可在发布流程中选号发文。微博主路径为<strong>本机浏览器登录</strong>；OAuth 仅在开启「开放平台授权」时使用，且与浏览器绑定互斥。
+          <strong>提示：</strong>每个平台仅一个绑定。微博与微信公众号均支持<strong>本机浏览器登录</strong>（微博另可选开放平台 OAuth）。微信需在弹出窗口登录 <strong>mp.weixin.qq.com</strong>；发文走网页端接口复现（非开放平台）。
         </AlertDescription>
       </Alert>
 
@@ -654,6 +635,12 @@ export default function AccountsPage() {
                       void startWeiboPlaywrightBind()
                       return
                     }
+                    if (platform.id === 'WECHAT') {
+                      setPlatformSelectOpen(false)
+                      setWechatBindOpen(true)
+                      void startWechatPlaywrightBind()
+                      return
+                    }
                     handleConnect(platform.id)
                   }}
                   disabled={rowDisabled}
@@ -675,9 +662,11 @@ export default function AccountsPage() {
                         ? '已通过账号管理绑定，请先解绑再换绑'
                         : isWeibo
                           ? '本机浏览器登录（主路径）'
-                          : platform.authPath || platform.id === 'WECHAT'
-                            ? '点击连接'
-                            : '即将开放'}
+                          : platform.id === 'WECHAT'
+                            ? '本机浏览器登录公众平台（主路径）'
+                            : platform.authPath
+                              ? '点击连接'
+                              : '即将开放'}
                     </div>
                   </div>
                   {bound && (
@@ -738,135 +727,36 @@ export default function AccountsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* 微信配置弹窗 */}
-      <Dialog open={wechatConfigOpen} onOpenChange={setWechatConfigOpen}>
-        <DialogContent className="sm:max-w-[800px] bg-white border border-gray-300 max-h-[90vh] overflow-y-auto">
+      <Dialog
+        open={wechatBindOpen}
+        onOpenChange={(open) => {
+          setWechatBindOpen(open)
+          if (!open) {
+            wechatSawInProgressRef.current = false
+            setWechatPlaywrightPolling(false)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px] bg-white border border-gray-300">
           <DialogHeader>
-            <DialogTitle className="text-black flex items-center gap-2">
-              <MessageCircle className="size-5 text-green-600" />
-              绑定微信公众号
-            </DialogTitle>
+            <DialogTitle className="text-black">绑定微信公众号</DialogTitle>
             <DialogDescription className="text-gray-600">
-              请按照以下步骤配置您的微信公众号，配置成功后即可发布内容。
+              请在随后弹出的窗口中登录 <strong>mp.weixin.qq.com</strong> 公众平台。绑定后发文将复现网页端素材/群发接口（非开放平台）。
             </DialogDescription>
           </DialogHeader>
-
-          {/* 配置指引 */}
-          <div className="py-4">
-            <WechatConfigGuide 
-              showPersonalWarning={wechatForm.subjectType === 'personal'}
-            />
-          </div>
-
-          <Separator className="bg-gray-200" />
-
-          {/* 配置表单 */}
-          <div className="space-y-4 pt-4">
-            <h4 className="font-semibold text-black">填写配置信息</h4>
-            
-            {/* AppID */}
-            <div className="space-y-2">
-              <Label htmlFor="appId" className="text-black">
-                AppID <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="appId"
-                value={wechatForm.appId}
-                onChange={(e) => setWechatForm({ ...wechatForm, appId: e.target.value })}
-                placeholder="请输入微信公众号AppID"
-                className="bg-white border-gray-300 text-black font-mono"
-              />
-            </div>
-
-            {/* AppSecret */}
-            <div className="space-y-2">
-              <Label htmlFor="appSecret" className="text-black">
-                AppSecret <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="appSecret"
-                type="password"
-                value={wechatForm.appSecret}
-                onChange={(e) => setWechatForm({ ...wechatForm, appSecret: e.target.value })}
-                placeholder="请输入微信公众号AppSecret"
-                className="bg-white border-gray-300 text-black font-mono"
-              />
-              <p className="text-xs text-gray-500">
-                加密存储，仅用于调用微信API
-              </p>
-            </div>
-
-            {/* 账号名称 */}
-            <div className="space-y-2">
-              <Label htmlFor="accountName" className="text-black">
-                账号名称(可选)
-              </Label>
-              <Input
-                id="accountName"
-                value={wechatForm.accountName}
-                onChange={(e) => setWechatForm({ ...wechatForm, accountName: e.target.value })}
-                placeholder="例如：我的公众号"
-                className="bg-white border-gray-300 text-black"
-              />
-              <p className="text-xs text-gray-500">
-                用于标识此公众号，留空将使用AppID
-              </p>
-            </div>
-
-            {/* 主体类型 */}
-            <div className="space-y-2">
-              <Label htmlFor="subjectType" className="text-black">
-                主体类型 <span className="text-red-500">*</span>
-              </Label>
-              <Select
-                value={wechatForm.subjectType}
-                onValueChange={(value: 'personal' | 'enterprise') => 
-                  setWechatForm({ ...wechatForm, subjectType: value })
-                }
-              >
-                <SelectTrigger className="bg-white border-gray-300">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="personal">个人主体</SelectItem>
-                  <SelectItem value="enterprise">企业主体</SelectItem>
-                </SelectContent>
-              </Select>
-              {wechatForm.subjectType === 'personal' && (
-                <Alert className="border-yellow-200 bg-yellow-50">
-                  <AlertCircle className="size-4 text-yellow-600" />
-                  <AlertDescription className="text-yellow-800 text-xs">
-                    <strong>重要提示：</strong>个人主体公众号不支持发布功能，仅能获取信息。如需发布功能，请使用企业主体公众号。
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
-          </div>
-          
-          <DialogFooter className="pt-4">
+          <div className="space-y-4 py-2">
             <Button
-              variant="outline"
-              onClick={() => {
-                setWechatConfigOpen(false)
-                setWechatForm({
-                  appId: '',
-                  appSecret: '',
-                  accountName: '',
-                  subjectType: 'personal'
-                })
-              }}
-              className="border-gray-300 text-black hover:bg-gray-100 transition-all duration-150"
+              className="w-full bg-green-600 text-white hover:bg-green-700"
+              onClick={() => void startWechatPlaywrightBind()}
+              disabled={connecting === 'WECHAT' || wechatPlaywrightPolling}
             >
-              取消
+              {wechatPlaywrightPolling
+                ? '等待登录中…'
+                : connecting === 'WECHAT'
+                  ? '启动中…'
+                  : '连接微信（本机浏览器）'}
             </Button>
-            <Button
-              onClick={handleWechatSubmit}
-              disabled={submitting || !wechatForm.appId || !wechatForm.appSecret}
-              className="bg-black text-white hover:bg-gray-800 transition-all duration-150"
-            >
-              {submitting ? '验证并保存中...' : '验证并保存'}
-            </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

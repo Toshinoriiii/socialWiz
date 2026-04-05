@@ -1,4 +1,4 @@
-import {
+﻿import {
   tryPublishWeiboTextViaWebAjax,
   type WeiboWebPublishOptions
 } from '@/lib/weibo-playwright/weibo-web-publish'
@@ -23,7 +23,13 @@ export async function startWeiboPlaywrightComposeProcess (
   text: string,
   publishOptions?: WeiboWebPublishOptions
 ): Promise<WeiboComposeStartResult> {
-  const trimmed = text.trim()
+  const urlCount = publishOptions?.imageUrls?.filter(Boolean).length ?? 0
+  let trimmed = text.trim()
+  if (!trimmed && urlCount > 0) {
+    trimmed =
+      publishOptions?.title?.trim() ||
+      '分享图片'
+  }
   if (!trimmed) {
     return { ok: false, error: 'text 不能为空' }
   }

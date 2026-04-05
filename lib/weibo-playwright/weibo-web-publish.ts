@@ -1,4 +1,4 @@
-import { readWeiboPlaywrightProfile } from '@/lib/weibo-playwright/session-files'
+﻿import { readWeiboPlaywrightProfile } from '@/lib/weibo-playwright/session-files'
 import {
   loadImagePartForWeibo,
   uploadWeiboImagesAsPicIdString,
@@ -320,6 +320,11 @@ export type WeiboWebPublishResult =
 export type WeiboWebPublishOptions = {
   /** 可下载的图片 URL，服务端拉取后上传图床 */
   imageUrls?: string[]
+  /**
+   * 头条文章封面：与 imageUrls 首图二选一优先（统一发布 multipart 传入）。
+   * 可避免服务端再 HTTP 拉 /content-images 失败导致无封面。
+   */
+  coverImagePart?: ImagePart
   /** 已上传的 pic_id，多张用 | 连接 */
   picId?: string
   /** 长文/图文标题，会加在正文前 */
@@ -346,9 +351,10 @@ export async function tryPublishWeiboTextViaWebAjax (
     if (!title) {
       return { ok: false, error: '发布头条文章需要标题' }
     }
-    /** 封面取自发布链路传入的 imageUrls（通常为首图，由作品内容 cover + images 在 PublishService 中拼装） */
+    /** 封面：优先二进制；否则 imageUrls 首图（作品 cover + images 在 PublishService 中拼装） */
     const cover = options?.imageUrls?.filter(Boolean)[0]
     return tryPublishWeiboHeadlineArticle(userId, title, text, {
+      coverImagePart: options?.coverImagePart,
       coverImageUrl: cover,
       weiboPublish: pickWeiboHeadlinePublish(options?.weiboPublishConfig)
     })

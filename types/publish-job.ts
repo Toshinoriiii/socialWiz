@@ -1,4 +1,4 @@
-import { z } from 'zod'
+﻿import { z } from 'zod'
 
 export const publishJobStatusSchema = z.enum(['QUEUED', 'RUNNING', 'SUCCESS', 'FAILED'])
 
@@ -9,7 +9,9 @@ export const publishJobPayloadSchema = z.object({
   title: z.string().optional(),
   contentType: z.string().optional(),
   imageUrls: z.array(z.string()).optional(),
-  source: z.enum(['unified_publish', 'weibo_account_publish']).optional()
+  source: z.enum(['unified_publish', 'weibo_account_publish']).optional(),
+  coverImageUrl: z.string().optional(),
+  htmlBody: z.string().optional()
 })
 
 export type PublishJobPayload = z.infer<typeof publishJobPayloadSchema>
