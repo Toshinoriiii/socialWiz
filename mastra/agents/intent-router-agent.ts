@@ -1,4 +1,4 @@
-import { Agent } from '@mastra/core/agent'
+﻿import { Agent } from '@mastra/core/agent'
 
 /**
  * 意图识别路由 Agent
@@ -22,7 +22,7 @@ export const intentRouterAgent = new Agent({
 - 需要深入讲解、详细分析
 - 具有完整结构和逻辑脉络
 - 文章长度较长（通常 > 800字）
-- 图片需要插入到段落中
+- 若走 AI 配图流程：通常仅生成 **一张 16:9 封面图**（放在文首），不为每个段落单独配插图
 
 **触发关键词**：
 - 文章、深度内容、详细介绍

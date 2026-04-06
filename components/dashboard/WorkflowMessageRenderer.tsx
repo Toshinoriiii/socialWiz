@@ -1,5 +1,6 @@
 ﻿import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { normalizeMarkdownForPublish } from '@/lib/utils/normalize-markdown-for-publish';
 import { WorkflowStep, StepStatus } from './WorkflowStep';
 import { FinalResultCard } from './FinalResultCard';
 import { Badge } from '@/components/ui/badge';
@@ -164,6 +165,11 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
     /<!--FINAL_RESULT_START-->([\s\S]*?)<!--FINAL_RESULT_END-->/
   );
   let finalResult = finalResultMatch ? finalResultMatch[1].trim() : null;
+
+  // 与发文侧一致：去零宽、拆模型常套的 ```markdown 外壳，避免预览与公众号脱节
+  if (finalResult) {
+    finalResult = normalizeMarkdownForPublish(finalResult);
+  }
   
   // 移除标题部分（如果存在）
   if (finalResult) {
@@ -229,8 +235,68 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
       alert(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
   };
-  
-  
+
+  /**
+   * 从 Blob / URL 推断可上传的图片 MIME 与扩展名（兼容 application/octet-stream）。
+   * 文章工作流与社交媒体/图文工作流在「继续编辑」时共用同一套 download → 上传逻辑。
+   */
+  const inferImageFileMeta = async (
+    blob: Blob,
+    imageUrl: string
+  ): Promise<{ mime: string; extension: string } | null> => {
+    const mimeFromBlob = (blob.type || '').split(';')[0].trim();
+    if (mimeFromBlob.startsWith('image/')) {
+      let extension = 'jpg';
+      if (mimeFromBlob.includes('png')) extension = 'png';
+      else if (mimeFromBlob.includes('gif')) extension = 'gif';
+      else if (mimeFromBlob.includes('webp')) extension = 'webp';
+      else {
+        const urlMatch = imageUrl.match(/\.(jpg|jpeg|png|gif|webp)(\?|#|$)/i);
+        if (urlMatch) extension = urlMatch[1].toLowerCase().replace('jpeg', 'jpg');
+      }
+      return { mime: mimeFromBlob, extension };
+    }
+
+    const header = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+    if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+      return { mime: 'image/jpeg', extension: 'jpg' };
+    }
+    if (header.length >= 8 && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) {
+      return { mime: 'image/png', extension: 'png' };
+    }
+    if (header.length >= 6 && header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46) {
+      return { mime: 'image/gif', extension: 'gif' };
+    }
+    if (
+      header.length >= 12 &&
+      header[0] === 0x52 &&
+      header[1] === 0x49 &&
+      header[2] === 0x46 &&
+      header[3] === 0x46 &&
+      header[8] === 0x57 &&
+      header[9] === 0x45 &&
+      header[10] === 0x42 &&
+      header[11] === 0x50
+    ) {
+      return { mime: 'image/webp', extension: 'webp' };
+    }
+
+    const urlMatch = imageUrl.match(/\.(jpg|jpeg|png|gif|webp)(\?|#|$)/i);
+    if (urlMatch) {
+      const e = urlMatch[1].toLowerCase();
+      const map: Record<string, { mime: string; extension: string }> = {
+        jpg: { mime: 'image/jpeg', extension: 'jpg' },
+        jpeg: { mime: 'image/jpeg', extension: 'jpg' },
+        png: { mime: 'image/png', extension: 'png' },
+        gif: { mime: 'image/gif', extension: 'gif' },
+        webp: { mime: 'image/webp', extension: 'webp' },
+      };
+      return map[e] ?? null;
+    }
+
+    return null;
+  };
+
   // 下载图片并转换为 File 对象
   const downloadImageAsFile = async (imageUrl: string, index: number): Promise<File | null> => {
     try {
@@ -278,33 +344,15 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
       }
 
       const blob = await response.blob();
-      
-      // 验证是否为图片
-      if (!blob.type.startsWith('image/')) {
-        console.error(`[downloadImageAsFile] 不是有效的图片类型: ${blob.type}`);
+
+      const meta = await inferImageFileMeta(blob, imageUrl);
+      if (!meta) {
+        console.error(`[downloadImageAsFile] 无法识别为图片: Content-Type=${blob.type || '(空)'}`);
         return null;
       }
-      
-      // 从URL或Content-Type推断文件扩展名
-      let extension = 'jpg';
-      const contentType = blob.type;
-      if (contentType.includes('png')) {
-        extension = 'png';
-      } else if (contentType.includes('gif')) {
-        extension = 'gif';
-      } else if (contentType.includes('webp')) {
-        extension = 'webp';
-      } else {
-        // 尝试从URL提取扩展名
-        const urlMatch = imageUrl.match(/\.(jpg|jpeg|png|gif|webp)/i);
-        if (urlMatch) {
-          extension = urlMatch[1].toLowerCase();
-        }
-      }
 
-      // 创建 File 对象
-      const fileName = `image-${index + 1}.${extension}`;
-      const file = new File([blob], fileName, { type: blob.type });
+      const fileName = `image-${index + 1}.${meta.extension}`;
+      const file = new File([blob], fileName, { type: meta.mime });
       
       console.log(`[downloadImageAsFile] 成功下载图片 ${index + 1}: ${fileName}, 大小: ${file.size} bytes`);
       return file;
@@ -317,6 +365,13 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
       return null;
     }
   };
+
+  /** 文章正文不嵌入封面图：移除所有 Markdown 图片（封面走 coverImage 字段） */
+  const stripMarkdownImagesFromBody = (md: string) =>
+    md
+      .replace(/!\[[^\]]*\]\([^\)]*\)/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
 
   // 处理跳转到编辑器（不创建草稿，只是跳转）
   const handleSaveDraft = async (data: { title: string; content: string; images: string[]; coverImage?: string; rawContent?: string }) => {
@@ -341,32 +396,31 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
       
       if (data.images && data.images.length > 0) {
         toast.loading('正在下载图片...', { id: 'download-images' });
-        
-        // 下载所有图片
+
+        // 按原始下标对齐 URL（图文多图时避免「先全量成功 URL + 末尾拼失败原链」导致顺序错乱）
+        const slotUrls = [...data.images];
         const imageFiles: File[] = [];
-        const failedUrls: string[] = [];
-        
+        const fileSlotIndices: number[] = [];
+
         for (let i = 0; i < data.images.length; i++) {
           const imageUrl = data.images[i];
           const file = await downloadImageAsFile(imageUrl, i);
           if (file) {
             imageFiles.push(file);
+            fileSlotIndices.push(i);
           } else {
-            failedUrls.push(imageUrl);
             console.warn(`[handleSaveDraft] 图片 ${i + 1} 下载失败: ${imageUrl}`);
           }
         }
-        
-        // 如果部分图片下载成功，继续上传成功的图片
+
         if (imageFiles.length > 0) {
           toast.loading(`正在上传图片... (${imageFiles.length}/${data.images.length})`, { id: 'download-images' });
-          
-          // 上传图片到服务器
+
           const formData = new FormData();
           imageFiles.forEach((file) => {
             formData.append('images', file);
           });
-          
+
           const uploadResponse = await fetch('/api/content/images/upload', {
             method: 'POST',
             headers: {
@@ -374,27 +428,31 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
             },
             body: formData
           });
-          
+
           const uploadResult = await uploadResponse.json();
-          
+
           if (uploadResponse.ok && uploadResult.imageUrls) {
-            uploadedImageUrls = uploadResult.imageUrls;
-            
-            // 如果有失败的图片，添加原始URL作为后备
-            if (failedUrls.length > 0) {
-              uploadedImageUrls = [...uploadedImageUrls, ...failedUrls];
-              toast.success(`成功上传 ${uploadResult.imageUrls.length} 张图片，${failedUrls.length} 张使用原始URL`, { id: 'download-images' });
+            const returned: string[] = uploadResult.imageUrls;
+            fileSlotIndices.forEach((slotIdx, j) => {
+              if (returned[j]) slotUrls[slotIdx] = returned[j];
+            });
+            uploadedImageUrls = slotUrls;
+
+            const failedCount = data.images.length - imageFiles.length;
+            if (failedCount > 0) {
+              toast.success(
+                `成功上传 ${returned.length} 张图片，${failedCount} 张保留原始链接`,
+                { id: 'download-images' }
+              );
             } else {
               toast.success(`成功上传 ${uploadedImageUrls.length} 张图片`, { id: 'download-images' });
             }
           } else {
             console.error('[handleSaveDraft] 图片上传失败:', uploadResult.error);
             toast.error(uploadResult.error || '图片上传失败', { id: 'download-images' });
-            // 如果上传失败，使用原始URL
             uploadedImageUrls = data.images;
           }
         } else {
-          // 所有图片都下载失败，使用原始URL
           console.warn('[handleSaveDraft] 所有图片下载失败，使用原始URL');
           uploadedImageUrls = data.images;
           toast.warning('图片下载失败，将使用原始URL', { id: 'download-images' });
@@ -435,22 +493,27 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
       if (!coverImageUrl && uploadedImageUrls.length > 0) {
         coverImageUrl = uploadedImageUrls[0];
       }
+
+      // 文章仅一张 AI 封面时：优先使用已上传的站内 URL，避免 cover 与 images[0] 字符串不一致导致未对齐、编辑页仍用易失效外链
+      if (
+        workflowType === 'article' &&
+        data.images.length === 1 &&
+        uploadedImageUrls.length > 0 &&
+        uploadedImageUrls[0].startsWith('/content-images/')
+      ) {
+        coverImageUrl = uploadedImageUrls[0];
+      }
       
       // 确定 contentType
       const contentType = workflowType === 'social-media' ? 'image-text' : 'article';
       
-      // 文章编辑器需要完整 Markdown（保留标题、加粗、列表等格式），仅替换图片 URL 为上传后的地址
+      // 文章编辑器：保留 Markdown 结构，但封面仅写入 coverImage，正文中不保留 ![...](...) 
       let finalContent: string;
-      if (contentType === 'article' && data.rawContent) {
-        finalContent = data.rawContent;
-        if (uploadedImageUrls.length > 0) {
-          let imageIndex = 0;
-          finalContent = finalContent.replace(/!\[([^\]]*)\]\(([^\)]*)\)/g, (_match, alt, _url) => {
-            const newUrl = uploadedImageUrls[imageIndex] ?? _url;
-            imageIndex++;
-            return `![${alt}](${newUrl})`;
-          });
-        }
+      if (contentType === 'article') {
+        const sourceMd = normalizeMarkdownForPublish(
+          (data.rawContent ?? data.content ?? '').trim()
+        );
+        finalContent = stripMarkdownImagesFromBody(sourceMd);
       } else {
         finalContent = data.content;
       }
@@ -459,7 +522,10 @@ export function WorkflowMessageRenderer({ content, onResumeWorkflow, token, rout
       const editorData = {
         title: data.title,
         content: finalContent,
-        images: uploadedImageUrls,
+        images:
+          contentType === 'article' && coverImageUrl
+            ? [coverImageUrl]
+            : uploadedImageUrls,
         coverImage: coverImageUrl,
         contentType: contentType,
         aiGenerated: true

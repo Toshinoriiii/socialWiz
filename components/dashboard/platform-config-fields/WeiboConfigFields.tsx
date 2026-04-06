@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 /**
  * 微博平台发布配置：按「文章」「图文」两类分别展示（与会话发博 contentType 对应）。
@@ -90,7 +90,9 @@ function CategoryCollapsible ({
 export function WeiboConfigFields ({ form, disabled }: WeiboConfigFieldsProps) {
   const { watch, setValue, register, formState: { errors } } = form
 
-  const followersOnly = watch('configData.articleFollowersOnlyFullText')
+  /** 仅在为 `true` 时视为开启；`undefined`/false 均为关闭（与默认不勾选一致） */
+  const followersOnlyEnabled =
+    watch('configData.articleFollowersOnlyFullText') === true
   const articleVis = watch('configData.articleVisibility') || 'public'
   const articleDecl = watch('configData.articleContentDeclaration') ?? '0'
   const imageVis = watch('configData.imageTextVisibility') || 'public'
@@ -128,15 +130,17 @@ export function WeiboConfigFields ({ form, disabled }: WeiboConfigFieldsProps) {
               <div className="flex justify-end mt-3">
                 <Button
                   type="button"
-                  variant={followersOnly !== false ? 'default' : 'outline'}
+                  variant={followersOnlyEnabled ? 'default' : 'outline'}
                   size="sm"
                   disabled={disabled}
                   onClick={() => {
-                    const enabled = followersOnly !== false
-                    setValue('configData.articleFollowersOnlyFullText', !enabled)
+                    setValue(
+                      'configData.articleFollowersOnlyFullText',
+                      !followersOnlyEnabled
+                    )
                   }}
                 >
-                  {followersOnly !== false ? '启用' : '关闭'}
+                  {followersOnlyEnabled ? '启用' : '关闭'}
                 </Button>
               </div>
             </div>

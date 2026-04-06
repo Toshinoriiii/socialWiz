@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 /**
  * 平台配置弹窗组件
@@ -37,7 +37,7 @@ function defaultWeiboConfigData () {
   return {
     type: 'weibo' as const,
     articleColumnName: '',
-    articleFollowersOnlyFullText: true,
+    articleFollowersOnlyFullText: false,
     articleVisibility: 'public' as const,
     articleContentDeclaration: '0' as const,
     articleWeiboStatusText: '',

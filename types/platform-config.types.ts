@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 平台发布配置类型定义
  * Feature: 006-platform-publish-config
  */
@@ -54,7 +54,7 @@ export interface WeiboPublishConfigData {
   type: 'weibo'
   /** 发布文章：专栏名称（需在平台创建；当前写入草稿 `source` 备扩展） */
   articleColumnName?: string
-  /** 发布文章：仅粉丝阅读全文 → follow_to_read */
+  /** 发布文章：仅粉丝阅读全文 → follow_to_read（默认关闭 / 全文公开） */
   articleFollowersOnlyFullText?: boolean
   /** 发布文章：可见范围（产品侧；完整对接依赖编辑器接口扩展） */
   articleVisibility?: WeiboVisibilityLevel

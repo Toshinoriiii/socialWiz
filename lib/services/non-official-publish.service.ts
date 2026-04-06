@@ -13,6 +13,7 @@ import {
   fetchWeiboStatusInsightsWithSessionCookies,
   type WeiboCookieStatusInsights
 } from '@/lib/weibo-playwright/weibo-status-cookie'
+import { appendWechatMpPublishSettingsHint } from '@/lib/utils/wechat-publish-user-hints'
 import type { WeiboPublishConfigData } from '@/types/platform-config.types'
 import type { ImagePart } from '@/lib/weibo-playwright/weibo-web-pic-upload'
 
@@ -334,14 +335,20 @@ export class NonOfficialPublishService {
     )
 
     if (!result.ok) {
-      const failMsg = [
+      const failMsgRaw = [
         result.error,
         result.detail,
         result.platformPostId ? `appMsgId=${result.platformPostId}` : null
       ]
         .filter(Boolean)
         .join(' — ')
-        .slice(0, 2000)
+      const rawCapped =
+        failMsgRaw.length > 4000
+          ? `${failMsgRaw.slice(0, 3999)}…`
+          : failMsgRaw
+      const failMsg = appendWechatMpPublishSettingsHint(
+        rawCapped || '发布失败'
+      )
       await prisma.publishJob.update({
         where: { id: job.id },
         data: {
@@ -352,7 +359,7 @@ export class NonOfficialPublishService {
       return {
         success: false,
         jobId: job.id,
-        error: failMsg || '发布失败',
+        error: failMsg || appendWechatMpPublishSettingsHint('发布失败'),
         message: result.hint
       }
     }

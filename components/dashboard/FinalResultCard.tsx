@@ -1,10 +1,11 @@
-import ReactMarkdown from 'react-markdown';
+﻿import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, Copy, Save } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { stripMarkdownFromTitle } from '@/lib/utils/strip-markdown-title';
 import { Button } from '@/components/ui/Button';
 
 interface FinalResultCardProps {
@@ -19,8 +20,9 @@ const parseContent = (markdown: string) => {
   // 提取标题的多种方式：
   // 1. 从 Markdown 标题标记中提取（# 或 ##）
   let titleMatch = markdown.match(/^#\s+(.+)$/m) || markdown.match(/^##\s+(.+)$/m);
-  let title = titleMatch ? titleMatch[1].trim() : null;
-  
+  let title = titleMatch ? stripMarkdownFromTitle(titleMatch[1]) : null;
+  if (title === '') title = null;
+
   // 2. 如果没有 Markdown 标题，从第一行提取（无配图工作流的第一行是标题）
   if (!title) {
     // 移除所有 Markdown 图片语法后，提取第一行
@@ -28,13 +30,18 @@ const parseContent = (markdown: string) => {
     const firstLineMatch = contentWithoutImages.match(/^([^\n]+)/);
     if (firstLineMatch) {
       const firstLine = firstLineMatch[1].trim();
-      // 如果第一行不是空行，且长度合理（10-100字），作为标题
-      if (firstLine.length >= 10 && firstLine.length <= 100 && !firstLine.startsWith('---')) {
-        title = firstLine;
+      const plainLine = stripMarkdownFromTitle(firstLine);
+      // 清洗后以纯文本长度判断；排除分隔线
+      if (
+        plainLine.length >= 10 &&
+        plainLine.length <= 100 &&
+        !firstLine.startsWith('---')
+      ) {
+        title = plainLine;
       }
     }
   }
-  
+
   // 3. 如果还是没有标题，使用默认值
   if (!title) {
     title = '未命名内容';
@@ -126,15 +133,16 @@ const parseContent = (markdown: string) => {
   
   // 2.5. 如果提取了标题，从内容中移除标题行（避免重复）
   if (title && title !== '未命名内容') {
-    // 移除第一行如果是标题
+    // 移除第一行如果是标题（与已清洗的纯文本标题比对）
     const lines = contentText.split('\n');
-    const firstLine = lines[0]?.trim();
-    // 如果第一行匹配标题（允许一些差异），移除它
-    if (firstLine && (
-      firstLine === title || 
-      firstLine.includes(title.substring(0, Math.min(20, title.length))) ||
-      title.includes(firstLine.substring(0, Math.min(20, firstLine.length)))
-    )) {
+    const rawFirst = lines[0]?.trim() || '';
+    const firstPlain = stripMarkdownFromTitle(rawFirst.replace(/^#{1,6}\s+/, ''));
+    if (
+      rawFirst &&
+      (firstPlain === title ||
+        firstPlain.includes(title.substring(0, Math.min(20, title.length))) ||
+        title.includes(firstPlain.substring(0, Math.min(20, firstPlain.length))))
+    ) {
       // 移除第一行和可能的空行
       let startIndex = 1;
       while (startIndex < lines.length && lines[startIndex].trim() === '') {
@@ -232,13 +240,18 @@ export function FinalResultCard({ content, wordCount, workflowType, onSaveDraft 
   const displayContent = (() => {
     if (parsedData.title && parsedData.title !== '未命名内容') {
       const lines = content.split('\n');
-      const firstLine = lines[0]?.trim();
-      // 如果第一行匹配标题，移除它
-      if (firstLine && (
-        firstLine === parsedData.title || 
-        firstLine.includes(parsedData.title.substring(0, Math.min(30, parsedData.title.length))) ||
-        parsedData.title.includes(firstLine.substring(0, Math.min(30, firstLine.length)))
-      )) {
+      const rawFirst = lines[0]?.trim() || '';
+      const firstPlain = stripMarkdownFromTitle(rawFirst.replace(/^#{1,6}\s+/, ''));
+      if (
+        rawFirst &&
+        (firstPlain === parsedData.title ||
+          firstPlain.includes(
+            parsedData.title.substring(0, Math.min(30, parsedData.title.length))
+          ) ||
+          parsedData.title.includes(
+            firstPlain.substring(0, Math.min(30, firstPlain.length))
+          ))
+      ) {
         // 移除第一行和可能的空行
         let startIndex = 1;
         while (startIndex < lines.length && lines[startIndex].trim() === '') {

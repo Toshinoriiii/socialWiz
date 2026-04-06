@@ -1,4 +1,4 @@
-import { UIMessage, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
+﻿import { UIMessage, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { mastra } from '@/mastra';
 import { getMCPClient } from '@/mastra/mcp';
 
@@ -270,6 +270,148 @@ async function handleWorkflowResume(
   }
 }
 
+/** 从嵌套 JSON / MCP 工具返回结构中取出首个 http(s) 链接 */
+function extractFirstHttpUrlFromUnknown(value: unknown, depth = 0): string | null {
+  if (depth > 24) return null;
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    const t = value.trim();
+    const m = t.match(/https?:\/\/[^\s"'<>[\]）]+/);
+    if (m) {
+      return m[0].replace(/[,;.,}\])'"`]+$/g, '').replace(/\]+$/g, '');
+    }
+    if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
+      try {
+        return extractFirstHttpUrlFromUnknown(JSON.parse(t), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const u = extractFirstHttpUrlFromUnknown(item, depth + 1);
+      if (u) return u;
+    }
+    return null;
+  }
+  if (typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    const keyPriority = [
+      'url',
+      'image_url',
+      'imageUrl',
+      'image',
+      'href',
+      'src',
+      'link',
+      'results',
+      'images',
+      'data',
+      'output',
+      'content',
+    ];
+    for (const k of keyPriority) {
+      if (k in o) {
+        const u = extractFirstHttpUrlFromUnknown(o[k], depth + 1);
+        if (u) return u;
+      }
+    }
+    for (const v of Object.values(o)) {
+      const u = extractFirstHttpUrlFromUnknown(v, depth + 1);
+      if (u) return u;
+    }
+  }
+  return null;
+}
+
+function tryParseJsonObject(text: string): Record<string, unknown> | null {
+  const t = text.trim();
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    const p = JSON.parse(t.slice(start, end + 1));
+    return typeof p === 'object' && p !== null && !Array.isArray(p) ? (p as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 聚合 Agent.generate 返回值中可能含图片 URL 的文本（含 toolResults / messages） */
+function collectImageAgentOutputBlob(result: unknown): string {
+  if (result == null) return '';
+  const r = result as Record<string, unknown>;
+  const parts: string[] = [];
+  if (typeof r.text === 'string') parts.push(r.text);
+  for (const key of ['object', 'fullOutput', 'output', 'response', 'messages']) {
+    const v = r[key];
+    if (v == null) continue;
+    if (typeof v === 'string') parts.push(v);
+    else {
+      try {
+        parts.push(JSON.stringify(v));
+      } catch {
+        parts.push(String(v));
+      }
+    }
+  }
+  if (r.toolResults != null) {
+    try {
+      parts.push(JSON.stringify(r.toolResults));
+    } catch {
+      /* ignore */
+    }
+  }
+  return parts.join('\n\n');
+}
+
+function extractImageUrlFromGenerateResult(
+  result: unknown
+): { ok: true; url: string } | { ok: false; error?: string } {
+  const blob = collectImageAgentOutputBlob(result);
+
+  const readFailure = (obj: Record<string, unknown> | null): string | null => {
+    if (obj && obj.success === false) {
+      return obj.error != null ? String(obj.error) : '生成失败';
+    }
+    return null;
+  };
+
+  for (const m of blob.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    const inner = m[1].trim();
+    const jo = tryParseJsonObject(inner);
+    const fail = readFailure(jo);
+    if (fail) return { ok: false, error: fail };
+    if (jo) {
+      const u = extractFirstHttpUrlFromUnknown(jo);
+      if (u) return { ok: true, url: u };
+    }
+    const uInner = extractFirstHttpUrlFromUnknown(inner);
+    if (uInner) return { ok: true, url: uInner };
+  }
+
+  const whole = tryParseJsonObject(blob);
+  const failWhole = readFailure(whole);
+  if (failWhole) return { ok: false, error: failWhole };
+  if (whole) {
+    const u = extractFirstHttpUrlFromUnknown(whole);
+    if (u) return { ok: true, url: u };
+  }
+
+  const uBlob = extractFirstHttpUrlFromUnknown(blob);
+  if (uBlob) return { ok: true, url: uBlob };
+
+  const uResult = extractFirstHttpUrlFromUnknown(result);
+  if (uResult) return { ok: true, url: uResult };
+
+  const mdImg = blob.match(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/);
+  if (mdImg) return { ok: true, url: mdImg[1] };
+
+  return { ok: false };
+}
+
 /**
  * 使用 imageGenerationAgent 生成图片
  */
@@ -283,7 +425,8 @@ async function generateImageWithAgent(
       return { success: false, error: '图片生成 Agent 未找到' };
     }
 
-    const agentPrompt = `**图片提示词**: ${prompt}
+    const agentPrompt = `**图片提示词**（须原样传入生成工具，禁止删减、简化或改写）:
+${prompt}
 
 **尺寸**: ${size}
 
@@ -295,32 +438,25 @@ async function generateImageWithAgent(
       content: agentPrompt,
     }]);
 
-    console.log('[generateImageWithAgent] Agent 返回:', result);
-    
-    // 解析 Agent 返回的结果
-    const responseText = result.text || '';
-    
-    // 尝试从 JSON 格式提取
     try {
-      const jsonMatch = responseText.match(/\{[\s\S]*"success"[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.success && parsed.images && parsed.images.length > 0) {
-          return { success: true, url: parsed.images[0].url };
-        } else if (!parsed.success) {
-          return { success: false, error: parsed.error || '生成失败' };
-        }
-      }
-    } catch (e) {
-      console.warn('[generateImageWithAgent] JSON 解析失败，尝试其他方式');
+      console.log('[generateImageWithAgent] Agent 返回:', JSON.stringify(result).slice(0, 1200));
+    } catch {
+      console.log('[generateImageWithAgent] Agent 返回: (无法 JSON 序列化)');
     }
-    
-    // 尝试直接提取 URL
-    const urlMatch = responseText.match(/https?:\/\/[^\s"\)]+/);
-    if (urlMatch) {
-      return { success: true, url: urlMatch[0] };
+
+    const extracted = extractImageUrlFromGenerateResult(result);
+    if (extracted.ok) {
+      return { success: true, url: extracted.url };
     }
-    
+    if ('error' in extracted && extracted.error) {
+      return { success: false, error: extracted.error };
+    }
+
+    const responseText = typeof (result as { text?: string })?.text === 'string' ? (result as { text: string }).text : '';
+    console.warn('[generateImageWithAgent] 无法提取 URL，text 长度:', responseText.length);
+    if (responseText.length > 0) {
+      console.warn('[generateImageWithAgent] text 前 800 字:', responseText.slice(0, 800));
+    }
     return { success: false, error: '未能提取图片 URL' };
   } catch (error) {
     console.error('[generateImageWithAgent] 错误:', error);
@@ -759,7 +895,7 @@ ${JSON.stringify({ content: fullContent.substring(0, 500) + '...' }, null, 2)}
 
     const imagePromptStream = await imagePromptAgent.stream([{
       role: 'user',
-      content: `文案内容:\n${fullContent}\n\n请为这篇文案生成 2-3 张配图的提示词。`,
+      content: `文案内容:\n${fullContent}\n\n任务：这是公众号/博客类长文章配图流程；请严格只生成 **1 张 16:9 封面图** 的提示词（imagePrompts 数组仅 1 条），不要规划正文插图。`,
     }]);
 
     let imagePromptsText = '';
@@ -810,6 +946,10 @@ ${JSON.stringify({ content: fullContent.substring(0, 500) + '...' }, null, 2)}
       console.log('[handleContentCreationResume 步骤 3] 解析后的对象 keys:', Object.keys(parsed));
       
       imagePrompts = parsed.imagePrompts || [];
+      if (imagePrompts.length > 1) {
+        console.warn('[handleContentCreationResume] 文章工作流仅生成 1 张封面，忽略多余 imagePrompts');
+        imagePrompts = imagePrompts.slice(0, 1);
+      }
       console.log('[handleContentCreationResume 步骤 3] 提取到的 imagePrompts 数量:', imagePrompts.length);
       
       if (imagePrompts.length > 0) {
@@ -871,7 +1011,7 @@ ${JSON.stringify({ imagePrompts: imagePrompts.map(p => ({ order: p.order, descri
 
         try {
           // 使用 imageGenerationAgent 生成图片
-          const result = await generateImageWithAgent(imagePrompt.prompt, '1024*1024');
+          const result = await generateImageWithAgent(imagePrompt.prompt, '1024*576');
           
           if (result.success && result.url) {
             const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(result.url)}`;
@@ -881,7 +1021,7 @@ ${JSON.stringify({ imagePrompts: imagePrompts.map(p => ({ order: p.order, descri
               proxyUrl: proxyUrl, 
               description: imagePrompt.description 
             });
-            const successText = `✅ 生成成功\n![图片${imagePrompt.order}](${proxyUrl})\n`;
+            const successText = `✅ 生成成功（封面 16:9）\n![封面](${proxyUrl})\n`;
             console.log(`[handleContentCreationResume 步骤 4] 图片 ${i + 1} 生成成功:`, successText);
             writer.write({ type: 'text-delta', id: textId, delta: successText });
           } else {
@@ -948,7 +1088,7 @@ ${fullContent}
 可用配图：
 ${imageDescriptions}
 
-请将图片合理地插入到文案中，使用 Markdown 格式。`
+排版要求：若当前只有 1 张图，视为 **封面**，放在 ## 主标题之后、正文第一段之前，且全篇仅此一处插图；使用 Markdown 格式。`
       : `请优化以下文案的排版，让它更适合微信公众号阅读。注意：配图生成失败，所以只需输出文案。\n\n文案内容：\n${fullContent}`;
 
     const mixStream = await contentMixAgent.stream([{
@@ -1708,7 +1848,7 @@ ${searchResults || '暂无'}`,
 **❓ 需要为文案配图吗？**
 
 文案已生成完成，您可以选择：
-- 配图：生成 2-3 张适合文章的配图
+- 配图：生成 **1 张 16:9 封面图**（不生成正文配图）
 - 不配图：直接输出文案
 
 `,

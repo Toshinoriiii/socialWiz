@@ -23,6 +23,7 @@ import type {
   WeiboPublishConfigData,
   WeiboVisibilityLevel
 } from '@/types/platform-config.types'
+import { stripMarkdownFromTitle } from '@/lib/utils/strip-markdown-title'
 
 function pickWeiboHeadlinePublish (
   cfg: WeiboPublishConfigData | undefined
@@ -347,6 +348,8 @@ export async function tryPublishWeiboTextViaWebAjax (
 ): Promise<WeiboWebPublishResult> {
   const ct = options?.contentType
   const title = options?.title?.trim()
+    ? stripMarkdownFromTitle(options.title.trim())
+    : undefined
   if (ct === 'article') {
     if (!title) {
       return { ok: false, error: '发布头条文章需要标题' }

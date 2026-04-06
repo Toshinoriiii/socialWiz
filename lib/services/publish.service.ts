@@ -5,7 +5,7 @@
 
 import { prisma } from '@/lib/db/prisma'
 import { Platform } from '@/types/platform.types'
-import { markdownToHtml, toPlainText } from '@/lib/utils/markdown-to-html'
+import { markdownToWechatMpHtml, toPlainText } from '@/lib/utils/markdown-to-html'
 import { PlatformConfigService } from '@/lib/services/platform-config.service'
 import { WeiboAdapter } from '@/lib/platforms/weibo/weibo-adapter'
 import { WechatAdapter } from '@/lib/platforms/wechat/wechat-adapter'
@@ -32,6 +32,7 @@ import {
   effectiveWeiboContentTypeFromRecord,
   weiboPublishBodyTextFallback
 } from '@/lib/utils/weibo-publish-content'
+import { stripMarkdownFromTitle } from '@/lib/utils/strip-markdown-title'
 
 export interface UnifiedPublishInput {
   userId: string
@@ -144,7 +145,7 @@ export class PublishService {
       return { success: false, error: '账号未连接' }
     }
 
-    const htmlContent = markdownToHtml(content.trim())
+    const htmlContent = markdownToWechatMpHtml(content.trim())
     const digest = toPlainText(htmlContent, 120)
     const { author, contentSourceUrl } = await this.resolveWechatPublishExtras(
       userId,
@@ -363,6 +364,10 @@ export class PublishService {
             c.images
           )
         }
+      }
+      if (weiboTitle) {
+        const plain = stripMarkdownFromTitle(weiboTitle)
+        weiboTitle = plain.length > 0 ? plain : undefined
       }
       text = weiboPublishBodyTextFallback({
         text,

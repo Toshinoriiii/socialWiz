@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 平台发布配置验证器
  * Feature: 006-platform-publish-config
  * 
@@ -54,7 +54,7 @@ export const WeiboConfigDataSchema = z.object({
     .max(120, '专栏名称过长')
     .optional()
     .or(z.literal('')),
-  articleFollowersOnlyFullText: z.boolean().optional().default(true),
+  articleFollowersOnlyFullText: z.boolean().optional().default(false),
   articleVisibility: weiboVisibility.optional().default('public'),
   articleContentDeclaration: weiboMblogStatement.optional().default('0'),
   articleWeiboStatusText: z

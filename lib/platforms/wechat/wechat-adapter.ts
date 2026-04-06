@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 微信公众号平台适配器实现
  * 
  * 实现 PlatformAdapter 接口，提供微信公众号平台的具体实现。
@@ -39,6 +39,7 @@ import type {
 import { Platform } from '@/types/platform.types'
 import { WechatApiClient } from './wechat-client'
 import { WECHAT_ERROR_MAP } from './wechat-types'
+import { appendWechatMpPublishSettingsHint } from '@/lib/utils/wechat-publish-user-hints'
 import FormData from 'form-data'
 import fetch from 'node-fetch'
 
@@ -213,7 +214,7 @@ export class WechatAdapter implements PlatformAdapter {
       if (!thumbMediaId) {
         return {
           success: false,
-          error: '上传封面图片失败'
+          error: appendWechatMpPublishSettingsHint('上传封面图片失败')
         }
       }
       console.log('[WechatAdapter] Thumb image uploaded, media_id:', thumbMediaId)
@@ -228,12 +229,22 @@ export class WechatAdapter implements PlatformAdapter {
         thumbMediaId
       })
 
+      if (!publishResult.success) {
+        return {
+          ...publishResult,
+          error: appendWechatMpPublishSettingsHint(
+            publishResult.error || '微信官方接口发布失败'
+          )
+        }
+      }
       return publishResult
     } catch (error: any) {
       console.error('[WechatAdapter] Publish error:', error)
       return {
         success: false,
-        error: error.message || '发布失败',
+        error: appendWechatMpPublishSettingsHint(
+          error.message || '发布失败'
+        ),
         errorCode: 'PUBLISH_FAILED'
       }
     }

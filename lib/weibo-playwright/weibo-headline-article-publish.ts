@@ -1,4 +1,5 @@
 ﻿import { markdownToHtml } from '@/lib/utils/markdown-to-html'
+import { stripMarkdownFromTitle } from '@/lib/utils/strip-markdown-title'
 import {
   cookieHeaderForUrl,
   readWeiboPlaywrightStorageCookies
@@ -45,6 +46,10 @@ const SAVE_PATH_CANDIDATES = [
   '/article/v4/editor/ajax/saveorupdate'
 ] as const
 
+/** 头条自动发布失败时提示：微博侧风控常要求当日首篇在草稿箱内手动发 */
+const WEIBO_HEADLINE_RISK_CONTROL_USER_HINT =
+  '因微博风控策略，通常每天的第一篇文章需要到微博「文章草稿箱」中手动发布。'
+
 const V5_EDITOR_PATH = '/article/v5/editor'
 const V5_AJ_BASE = '/article/v5/aj/editor'
 
@@ -82,6 +87,72 @@ function v5SuccessJson (raw: string): boolean {
     return v5Success(j)
   } catch {
     return false
+  }
+}
+
+/**
+ * save 成功响应里常带服务端 `updated`（及 ver）；若不写回下一轮 save/publish，
+ * 部分账号会固定 500002「请手动保存后重新提交」（乐观锁/版本不一致）。
+ */
+function mergeDraftMetaFromV5SaveResponse (
+  raw: string,
+  shell: Record<string, unknown>
+): void {
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>
+    if (!v5Success(j)) return
+    let d: unknown = j.data
+    if (typeof d === 'string') {
+      try {
+        d = JSON.parse(d)
+      } catch {
+        return
+      }
+    }
+    if (d == null) return
+    const apply = (o: Record<string, unknown>) => {
+      const u = o.updated
+      if (u != null && String(u).trim()) shell.updated = String(u)
+      const ver = o.ver
+      if (ver != null && String(ver).trim()) shell.ver = String(ver)
+    }
+    if (typeof d === 'object' && !Array.isArray(d)) {
+      const o = d as Record<string, unknown>
+      if (o.draft && typeof o.draft === 'object' && !Array.isArray(o.draft)) {
+        apply(o.draft as Record<string, unknown>)
+      } else {
+        apply(o)
+      }
+    } else if (Array.isArray(d) && d[0] && typeof d[0] === 'object') {
+      apply(d[0] as Record<string, unknown>)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 模拟浏览器打开「该草稿」v5 编辑器页，便于服务端标记草稿会话（仅 GET HTML，Referer 不用带 query） */
+async function fetchV5EditorDraftHtmlWarmup (
+  cardBase: string,
+  cookieHeader: string,
+  uid: string,
+  draftId: string
+): Promise<void> {
+  const q = `id=${encodeURIComponent(draftId)}&uid=${encodeURIComponent(uid)}`
+  try {
+    await fetch(`${cardBase}${V5_EDITOR_PATH}?${q}`, {
+      method: 'GET',
+      headers: {
+        Cookie: cookieHeader,
+        Referer: 'https://weibo.com/',
+        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        'User-Agent': UA
+      },
+      redirect: 'follow',
+      cache: 'no-store'
+    })
+  } catch {
+    /* ignore */
   }
 }
 
@@ -170,6 +241,57 @@ function plainTextExcerpt (html: string, maxLen: number): string {
     .slice(0, maxLen)
 }
 
+/**
+ * 头条 v5 draft/save 对标题校验严：过长、换行、Markdown 残留、URL、控制字符等易触发 `111002`（标题不符合规范）。
+ * PC 端文章编辑器标题上限多为 **32 字**（unicode 码点计），超过后草稿能存但发布按钮/接口会拦。
+ * @see 扁平 save 字段 title 与 JSON 树内 title 均经此规范化后再提交
+ */
+const WEIBO_HEADLINE_TITLE_MAX_LEN = 32
+
+function normalizeWeiboHeadlineTitleForV5 (
+  raw: string,
+  bodyHtmlForFallback: string
+): string {
+  let t = stripMarkdownFromTitle(raw)
+
+  if (t.length > WEIBO_HEADLINE_TITLE_MAX_LEN) {
+    t = t.slice(0, WEIBO_HEADLINE_TITLE_MAX_LEN).trim()
+    while (t.length > 0 && /[\uD800-\uDFFF]$/.test(t)) {
+      t = t.slice(0, -1)
+    }
+  }
+
+  if (!t) {
+    const plain = stripMarkdownFromTitle(plainTextExcerpt(bodyHtmlForFallback, 120))
+    t =
+      plain.slice(0, WEIBO_HEADLINE_TITLE_MAX_LEN).trim() || '头条文章'
+  }
+  return t
+}
+
+/**
+ * 导语过短/为空时部分账号 publish 恒 500002；过长或含链接等又易 111004。
+ * 使用正文纯文本前若干字（去 URL、strip 标题类 MD），必要时退回标题截断。
+ */
+const WEIBO_HEADLINE_SUMMARY_MAX_LEN = 24
+
+function safeWeiboHeadlineSummaryForV5 (bodyHtml: string, titleTrim: string): string {
+  let s = plainTextExcerpt(bodyHtml, 400)
+  s = stripMarkdownFromTitle(s)
+  s = s.replace(/https?:\/\/\S+/gi, '').replace(/\s+/g, ' ').trim()
+  if (s.length > WEIBO_HEADLINE_SUMMARY_MAX_LEN) {
+    s = s.slice(0, WEIBO_HEADLINE_SUMMARY_MAX_LEN).trim()
+  }
+  const tit = stripMarkdownFromTitle(titleTrim).slice(0, WEIBO_HEADLINE_SUMMARY_MAX_LEN).trim()
+  if (!s || (tit && s === tit)) {
+    s = tit || '阅读全文'
+  }
+  if (s.length > WEIBO_HEADLINE_SUMMARY_MAX_LEN) {
+    s = s.slice(0, WEIBO_HEADLINE_SUMMARY_MAX_LEN).trim()
+  }
+  return s || '阅读全文'
+}
+
 function nonEmptyStr (v: unknown): boolean {
   return typeof v === 'string' && v.trim().length > 0
 }
@@ -220,15 +342,15 @@ function injectTitleHtmlIntoDraftTree (
   root: Record<string, unknown>,
   title: string,
   html: string,
-  coverPid: string
+  coverPid: string,
+  summaryPlain: string
 ): void {
-  const excerpt = plainTextExcerpt(html, 400)
   const visit = (o: Record<string, unknown>): void => {
     for (const k of Object.keys(o)) {
       const v = o[k]
       if (V5_TITLE_KEYS.has(k)) o[k] = title
       if (V5_CONTENT_KEYS.has(k)) o[k] = html
-      if (V5_SUMMARY_KEYS.has(k)) o[k] = excerpt || title
+      if (V5_SUMMARY_KEYS.has(k)) o[k] = summaryPlain
       if (coverPid && V5_COVER_KEYS.has(k)) o[k] = coverPid
       if (v && typeof v === 'object' && !Array.isArray(v)) {
         visit(v as Record<string, unknown>)
@@ -238,7 +360,7 @@ function injectTitleHtmlIntoDraftTree (
   visit(root)
   if (!nonEmptyStr(root.title)) root.title = title
   if (!nonEmptyStr(root.content)) root.content = html
-  if (!nonEmptyStr(root.summary)) root.summary = excerpt || title
+  root.summary = summaryPlain
   if (coverPid && !nonEmptyStr(root.cover)) root.cover = coverPid
 }
 
@@ -246,11 +368,12 @@ function buildSavePayloadFromLoad (
   loaded: Record<string, unknown> | null,
   title: string,
   html: string,
-  coverPid: string
+  coverPid: string,
+  summaryPlain: string
 ): Record<string, unknown> | null {
   if (!loaded || Object.keys(loaded).length === 0) return null
   const draft = JSON.parse(JSON.stringify(loaded)) as Record<string, unknown>
-  injectTitleHtmlIntoDraftTree(draft, title, html, coverPid)
+  injectTitleHtmlIntoDraftTree(draft, title, html, coverPid, summaryPlain)
   return draft
 }
 
@@ -496,7 +619,6 @@ function buildV5CardSyncPublishFlatBody (
   draftId: string,
   uid: string,
   articleTitle: string,
-  xsrf: string | null,
   textVariant: 'space' | 'plus',
   publishOpts?: {
     statusTextOverride?: string
@@ -508,11 +630,12 @@ function buildV5CardSyncPublishFlatBody (
 ): string {
   const t = articleTitle.trim()
   const custom = optionalTrim(publishOpts?.statusTextOverride)
+  /** 与 PC 抓包一致：plus 为 「》+」紧跟结束，其后无空格；space 为 「》」结束无尾空格 */
   const text = custom
     ? custom
     : textVariant === 'plus'
-      ? `发布了头条文章：《${t}》+ `
-      : `发布了头条文章：《${t}》 `
+      ? `发布了头条文章：《${t}》+`
+      : `发布了头条文章：《${t}》`
   /** 字段顺序与 card v5 draft/publish 抓包一致 */
   const p = new URLSearchParams()
   p.set('rank', '0')
@@ -535,9 +658,21 @@ function buildV5CardSyncPublishFlatBody (
   p.set('uid', String(uid))
   p.set('ver', '4.0')
   p.set('support_all_tag', '1')
-  /** 线上抓包常见无 st；仍保留带 st 的重试以兼容部分会话 */
-  if (xsrf) p.set('st', xsrf)
+  /** 真机抓包 publish body 不含 st；save 仍可用 st，publish 带 st 易与线行为不一致 */
   return p.toString()
+}
+
+/** 微博在发布链路中可能要求打开 /article/v5/aj/face 做人脸/扫码，此类校验无法通过改 publish 表单绕过 */
+function weiboPublishSecurityHintFromStrings (blob: string): string | null {
+  if (
+    /\/aj\/face\b/i.test(blob) ||
+    /"face"|人脸核验|人脸识别|扫码验证|请.*验证|security.?check/i.test(blob)
+  ) {
+    return (
+      '发布前若出现「人脸/扫码」或请求 /article/v5/aj/face：请在已登录 card.weibo.com 的浏览器中完成微博安全校验后再用本系统发布；该步骤由账号风控触发，不能通过省略接口参数规避。'
+    )
+  }
+  return null
 }
 
 async function fetchV5DraftLoadRaw (
@@ -960,6 +1095,8 @@ async function tryPublishWeiboArticleV5DraftFlow (
     log.push('v5: 无封面 URL（图床失败或未传图），仅发正文')
   }
 
+  const summaryPlain = safeWeiboHeadlineSummaryForV5(bodyHtml, titleTrim)
+
   const { raw: loadRawCaptured, draft: loadDraft } = await fetchV5DraftLoadRaw(
     cardBase,
     uid,
@@ -978,10 +1115,11 @@ async function tryPublishWeiboArticleV5DraftFlow (
         full.draft as Record<string, unknown>,
         titleTrim,
         bodyHtml,
-        coverField
+        coverField,
+        summaryPlain
       )
     } else {
-      injectTitleHtmlIntoDraftTree(full, titleTrim, bodyHtml, coverField)
+      injectTitleHtmlIntoDraftTree(full, titleTrim, bodyHtml, coverField, summaryPlain)
     }
     savePayloads.push(full)
   }
@@ -990,14 +1128,15 @@ async function tryPublishWeiboArticleV5DraftFlow (
     loadDraft,
     titleTrim,
     bodyHtml,
-    coverField
+    coverField,
+    summaryPlain
   )
   if (fromLoad) {
     savePayloads.push(fromLoad)
   }
   if (!envelope && !fromLoad) {
     const syn = buildSyntheticV5DraftShell(draftId)
-    injectTitleHtmlIntoDraftTree(syn, titleTrim, bodyHtml, coverField)
+    injectTitleHtmlIntoDraftTree(syn, titleTrim, bodyHtml, coverField, summaryPlain)
     savePayloads.unshift(syn)
     log.push(
       'v5: draft/load 无有效 data（浏览器直开常为 100001），已用与线上一致的合成草稿壳提交 save'
@@ -1011,7 +1150,6 @@ async function tryPublishWeiboArticleV5DraftFlow (
   /** 用于发布前再 save 一次，缓解「请手动保存后提交」类 500002 */
   let shellForRepublish: Record<string, unknown> | null = null
 
-  const summaryPlain = plainTextExcerpt(bodyHtml, 400) || titleTrim
   const seenFlat = new Set<string>()
   for (const sp of savePayloads) {
     const shell = v5SaveRecordForFlatPayload(sp, draftId)
@@ -1055,6 +1193,7 @@ async function tryPublishWeiboArticleV5DraftFlow (
         if (v5SuccessJson(sRaw)) {
           saveAnyOk = true
           shellForRepublish = JSON.parse(JSON.stringify(shell)) as Record<string, unknown>
+          mergeDraftMetaFromV5SaveResponse(sRaw, shellForRepublish)
           break
         }
         log.push(
@@ -1138,6 +1277,7 @@ async function tryPublishWeiboArticleV5DraftFlow (
           if (flat) {
             if (coverField) flat.cover = coverField
             shellForRepublish = flat
+            mergeDraftMetaFromV5SaveResponse(sRaw, shellForRepublish)
           }
           break
         }
@@ -1152,9 +1292,25 @@ async function tryPublishWeiboArticleV5DraftFlow (
     }
     if (saveAnyOk) break
   }
-  if (!saveAnyOk) {
-    log.push('v5 draft/save：未收到 code=100000，仍尝试 publish')
-  } else if (shellForRepublish) {
+  if (saveAnyOk && !shellForRepublish) {
+    for (const sp of savePayloads) {
+      const flat = v5SaveRecordForFlatPayload(sp, draftId)
+      if (flat) {
+        if (coverField) flat.cover = coverField
+        shellForRepublish = flat
+        log.push('v5: save 已成功但从 JSON 路径未带 flat，已从 payloads 补全以便终态 save')
+        break
+      }
+    }
+    if (!shellForRepublish) {
+      log.push(
+        'v5: save 已成功但无法构建 flat 壳，终态 save 将跳过（易出现 publish 500002）'
+      )
+    }
+  }
+
+  const doFinalLockSave = async (reasonLabel: string): Promise<void> => {
+    if (!shellForRepublish) return
     if (coverField) shellForRepublish.cover = coverField
     const ridLock = makeArticleV5Rid()
     const lockBody = buildV5BrowserFlatSaveBody(shellForRepublish, {
@@ -1180,21 +1336,33 @@ async function tryPublishWeiboArticleV5DraftFlow (
         cache: 'no-store'
       })
       const sRaw = await sRes.text()
-      if (!v5SuccessJson(sRaw)) {
-        log.push(`v5 发布前终态 save HTTP ${sRes.status}: ${sRaw.slice(0, 160)}`)
+      if (v5SuccessJson(sRaw)) {
+        mergeDraftMetaFromV5SaveResponse(sRaw, shellForRepublish)
+      } else {
+        log.push(
+          `v5 ${reasonLabel} save HTTP ${sRes.status}: ${sRaw.slice(0, 160)}`
+        )
       }
     } catch (e) {
       log.push(
-        `v5 发布前终态 save: ${e instanceof Error ? e.message : String(e)}`
+        `v5 ${reasonLabel} save: ${e instanceof Error ? e.message : String(e)}`
       )
     }
-    await new Promise((r) => setTimeout(r, 900))
+  }
+
+  if (!saveAnyOk) {
+    log.push('v5 draft/save：未收到 code=100000，仍尝试 publish')
+  } else if (shellForRepublish) {
+    await doFinalLockSave('发布前终态')
+    /** 500002「请手动保存后重新提交」：服务端落库略慢，缩短等待易误判未保存 */
+    await new Promise((r) => setTimeout(r, 1600))
   }
 
   const tryPublishGetPost = async (): Promise<HeadlineArticlePublishResult | null> => {
     const attemptsPub: string[] = []
 
-    await new Promise((r) => setTimeout(r, 450))
+    await new Promise((r) => setTimeout(r, 800))
+    await fetchV5EditorDraftHtmlWarmup(cardBase, cookieHeader, uid, draftId)
 
     const handlePublishRaw = (pRaw: string): HeadlineArticlePublishResult | null => {
       const parsed = parseSaveResponse(pRaw)
@@ -1249,6 +1417,8 @@ async function tryPublishWeiboArticleV5DraftFlow (
         const pRaw = await pRes.text()
         const ok = handlePublishRaw(pRaw)
         if (ok?.ok) return ok
+        const sec = weiboPublishSecurityHintFromStrings(pRaw)
+        if (sec) attemptsPub.push(`v5 ${label}: ${sec}`)
         attemptsPub.push(`${label} HTTP ${pRes.status}: ${pRaw.slice(0, 260)}`)
       } catch (e) {
         attemptsPub.push(
@@ -1263,9 +1433,12 @@ async function tryPublishWeiboArticleV5DraftFlow (
     const textVars = customStatus
       ? (['space'] as const)
       : (['plus', 'space'] as const)
-    /** 先尝试全文公开 follow_to_read=0，部分账号仅粉丝全文时 publish 恒 500002 */
-    const followPasses: boolean[] =
-      articleCfg?.articleFollowersOnlyFullText === false ? [false] : [false, true]
+    /**
+     * publish 的 follow_to_read 必须与 flat save 一致（见 buildV5BrowserFlatSaveBody）。
+     * 若 save 为 0 却用 publish 试 1，部分账号固定 500002「请手动保存后重新提交」。
+     */
+    const savedFollowToRead = articleCfg?.articleFollowersOnlyFullText === true
+    const followPasses: boolean[] = [savedFollowToRead]
     for (const followToRead of followPasses) {
       for (const syncWb of ['0', '1'] as const) {
         const cardPublishOpts = {
@@ -1275,22 +1448,17 @@ async function tryPublishWeiboArticleV5DraftFlow (
           syncWb
         }
         for (const textVar of textVars) {
-          /** 先无 st（与常见抓包一致），再带 st */
-          for (const withSt of [false, true] as const) {
-            if (withSt && !xsrf) continue
-            const ok = await postPublish(
-              `publish fr=${followToRead ? 1 : 0} sync_wb=${syncWb} text=${textVar}${withSt ? '+st' : ''}`,
-              buildV5CardSyncPublishFlatBody(
-                draftId,
-                uid,
-                titleTrim,
-                withSt ? xsrf : null,
-                textVar,
-                cardPublishOpts
-              )
+          const ok = await postPublish(
+            `publish fr=${followToRead ? 1 : 0} sync_wb=${syncWb} text=${textVar}`,
+            buildV5CardSyncPublishFlatBody(
+              draftId,
+              uid,
+              titleTrim,
+              textVar,
+              cardPublishOpts
             )
-            if (ok?.ok) return ok
-          }
+          )
+          if (ok?.ok) return ok
         }
       }
     }
@@ -1299,13 +1467,27 @@ async function tryPublishWeiboArticleV5DraftFlow (
     return null
   }
 
-  const published = await tryPublishGetPost()
+  let published = await tryPublishGetPost()
   if (published?.ok) return published
 
+  if (saveAnyOk && shellForRepublish) {
+    log.push(
+      'v5: publish 均未成功（常见 500002），再执行终态 save 并延长等待后整体重试 publish 一轮'
+    )
+    await doFinalLockSave('第二轮发布前')
+    await new Promise((r) => setTimeout(r, 2400))
+    published = await tryPublishGetPost()
+    if (published?.ok) return published
+  }
+
+  const logStr = [`draftId=${draftId}`, ...log].join(' | ')
+  const secExtra = weiboPublishSecurityHintFromStrings(logStr)
+  const baseErr =
+    `${WEIBO_HEADLINE_RISK_CONTROL_USER_HINT} 本次通过接口自动发布未成功（v5 已创建草稿 ID，但 draft/save 或 publish 未成功）；草稿通常可在「文章草稿箱」查看。草稿箱里偶现空白条目属正常现象，可手动删掉。detail 中为接口返回（如 111002 标题不规范、111001 参数错误、500002 可在网页端打开该草稿保存后再试，或检查 Cookie/会话是否过期）。`
   return {
     ok: false,
-    error: '头条文章 v5 已创建草稿但发布未成功',
-    detail: [`draftId=${draftId}`, ...log].join(' | ')
+    error: secExtra ? `${baseErr} ${secExtra}` : baseErr,
+    detail: logStr
   }
 }
 
@@ -1338,10 +1520,13 @@ export async function tryPublishWeiboHeadlineArticle (
     weiboPublish?: WeiboHeadlinePublishInput
   }
 ): Promise<HeadlineArticlePublishResult> {
-  const titleTrim = title.trim()
   const mdTrim = markdown.trim()
-  if (!titleTrim) return { ok: false, error: '头条文章需要标题' }
   if (!mdTrim) return { ok: false, error: '头条文章正文不能为空' }
+  const rawTitle = title.trim()
+  if (!rawTitle) return { ok: false, error: '头条文章需要标题' }
+
+  const html = wrapArticleHtml(markdownToHtml(mdTrim))
+  const titleTrim = normalizeWeiboHeadlineTitleForV5(rawTitle, html)
 
   const cookies = readWeiboPlaywrightStorageCookies(userId)
   if (!cookies?.length) return { ok: false, error: '无会话 Cookie' }
@@ -1353,8 +1538,6 @@ export async function tryPublishWeiboHeadlineArticle (
   if (!cookieHeader) {
     return { ok: false, error: '无法为 card.weibo / weibo.com 拼 Cookie' }
   }
-
-  const html = wrapArticleHtml(markdownToHtml(mdTrim))
 
   let xsrf = xsrfTokenFromCookies(cookies)
   if (!xsrf) {
@@ -1426,6 +1609,11 @@ export async function tryPublishWeiboHeadlineArticle (
     let v5TerminalError: HeadlineArticlePublishResult | null = null
     for (const cardBase of CARD_BASES) {
       const v5Log: string[] = []
+      if (titleTrim !== rawTitle) {
+        v5Log.push(
+          `标题已规范化（降低 111002 风险）：原 ${rawTitle.length} → 现 ${titleTrim.length} 字符`
+        )
+      }
       const v5 = await tryPublishWeiboArticleV5DraftFlow(
         userId,
         cardBase,
@@ -1550,7 +1738,7 @@ export async function tryPublishWeiboHeadlineArticle (
 
   return {
     ok: false,
-    error: '头条文章接口未成功（card.weibo 可能已改版）',
+    error: `${WEIBO_HEADLINE_RISK_CONTROL_USER_HINT} 若仍失败，请查看 detail（card.weibo 接口未成功，可能已改版或会话异常）。`,
     detail: [
       attempts.join(' | '),
       hintUid,

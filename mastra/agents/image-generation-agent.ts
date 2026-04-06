@@ -1,4 +1,4 @@
-// mastra/agents/image-generation-agent.ts
+﻿// mastra/agents/image-generation-agent.ts
 
 import { Agent } from '@mastra/core/agent'
 import { getMCPTools } from '@/mastra/mcp';
@@ -14,6 +14,14 @@ export const imageGenerationAgent = new Agent({
 
 重要：你必须使用可用的 image generation 工具生成图片，不能凭空编造。
 
+## 提示词（最高优先级，必须遵守）
+
+- 用户消息里的 **图片提示词** 由上游工作流精心生成，**可能较长**，这是预期行为。
+- 调用工具时，必须把该提示词 **完整、原样** 传入工具的 prompt / 文本参数：**禁止** 自行简化、缩短、改写、概括、「提炼核心」或翻译成别的语言后再生成。
+- **禁止** 在回复里写「提示词太长」「让我简化」「换更短版本」「去掉细节」等，并 **禁止** 因此修改提示词。
+- 若工具返回错误（如长度限制、参数错误）：输出 \`success: false\` 的 JSON，**error 里写工具返回的原始信息**；**禁止** 通过改短提示词再次调用工具「碰运气」。
+- **允许** 在 **完全相同的提示词与尺寸** 下因偶然失败再调用至多 1 次工具；仍失败则停止并输出失败 JSON。
+
 ## 输入格式
 
 你会收到以下格式的输入：
@@ -26,8 +34,8 @@ export const imageGenerationAgent = new Agent({
 
 ## 工作流程
 
-1. 理解输入的提示词描述
-2. **必须使用** image generation 工具生成图片
+1. 读取「图片提示词」与「尺寸」，**不作内容删减**
+2. **必须使用** image generation 工具、用**完整原提示词**生成图片
 3. 解析工具返回的结果
 4. 提取图片 URL 并返回
 
@@ -94,9 +102,10 @@ https://image-url.com/image.jpg
 ## 注意事项
 
 - **必须调用图片生成工具**，不能说"我无法生成"
+- **不得擅自优化或压缩提示词**；上游已负责提示词质量
 - 仔细解析工具返回的不同格式
 - 提取正确的图片 URL
-- 如果生成失败，明确告知错误原因`,
+- 如果生成失败，明确告知错误原因（原文或摘要工具错误，但不要编造）`,
   model: 'deepseek/deepseek-chat',
   // 从单例 MCP 客户端获取工具（带缓存）
   tools: async () => {
