@@ -1,4 +1,4 @@
-﻿import { markdownToHtml } from '@/lib/utils/markdown-to-html'
+import { markdownToHtml } from '@/lib/utils/markdown-to-html'
 import { stripMarkdownFromTitle } from '@/lib/utils/strip-markdown-title'
 import {
   cookieHeaderForUrl,
@@ -17,6 +17,8 @@ import {
   type ImagePart
 } from '@/lib/weibo-playwright/weibo-web-pic-upload'
 import { weiboProfileStatusUrl } from '@/lib/weibo-playwright/weibo-profile-status-url'
+import { isWeiboArticleNumericObjectId } from '@/lib/weibo-playwright/weibo-status-cookie'
+import { normalizeWeiboArticleOidDigitsForLookup } from '@/lib/weibo-playwright/weibo-internal-ids'
 import type { WeiboPublishConfigData } from '@/types/platform-config.types'
 import { randomBytes } from 'crypto'
 
@@ -849,17 +851,33 @@ function parseSaveResponse (
       ret === '20000000'
     const data = j.data
     const pickFromObj = (o: Record<string, unknown>) => {
+      /** 时间线 mid 必须优先于 object_id（后者为头条体裁，不能用于 statuses/show） */
       const idRaw =
+        o.mid ??
+        o.mblogid ??
+        o.mblog_id ??
+        o.status_mid ??
+        o.idstr ??
         o.id ??
         o.object_id ??
         o.article_id ??
-        o.mid ??
         o.idea_id ??
         o.blog_id ??
         o.status_id
-      let id: string | undefined =
-        idRaw != null ? String(idRaw).replace(/[^\d]/g, '') : undefined
-      if (!id || id.length < 8) id = idRaw != null ? String(idRaw) : undefined
+      let id: string | undefined
+      if (idRaw != null) {
+        const s = String(idRaw).trim()
+        const colon = s.match(/^1022:(\d{10,40})$/i)
+        if (colon?.[1]) id = colon[1]
+        else {
+          const digits = s.replace(/[^\d]/g, '')
+          id =
+            digits.length >= 5
+              ? normalizeWeiboArticleOidDigitsForLookup(digits)
+              : undefined
+        }
+        if (id && !/^\d{5,40}$/.test(id)) id = undefined
+      }
       const url =
         typeof o.url === 'string'
           ? o.url
@@ -875,7 +893,12 @@ function parseSaveResponse (
         const inner = data[0] as Record<string, unknown>
         const { id, url } = pickFromObj(inner)
         const feedMid = deepFindFeedMid(data)
-        const sid = feedMid ?? id
+        const idDigits = id?.replace(/\D/g, '') ?? ''
+        const idAsMid =
+          id && idDigits && !isWeiboArticleNumericObjectId(idDigits)
+            ? id
+            : undefined
+        const sid = feedMid ?? idAsMid
         if (sid || url) return { ok: true, id: sid, url }
       }
     } else if (numOk && data && typeof data === 'object') {
@@ -886,7 +909,12 @@ function parseSaveResponse (
           : d
       const { id, url } = pickFromObj(inner)
       const feedMid = deepFindFeedMid(data)
-      const sid = feedMid ?? id
+      const idDigits = id?.replace(/\D/g, '') ?? ''
+      const idAsMid =
+        id && idDigits && !isWeiboArticleNumericObjectId(idDigits)
+          ? id
+          : undefined
+      const sid = feedMid ?? idAsMid
       if (sid || url) return { ok: true, id: sid, url }
     }
     if (numOk) {
@@ -902,36 +930,49 @@ function parseSaveResponse (
   }
 }
 
-/** 从头条保存接口 JSON 里尽量找出「时间线帖」用的 mid（非 article object_id） */
-function deepFindFeedMid (obj: unknown, depth = 0): string | undefined {
+function isPlausibleTimelineMidDigits (s: string): boolean {
+  const d = s.replace(/\D/g, '')
+  if (!/^\d{5,40}$/.test(d)) return false
+  if (isWeiboArticleNumericObjectId(d)) return false
+  return true
+}
+
+function deepFindKeyTimelineMid (
+  obj: unknown,
+  keys: string[],
+  depth: number
+): string | undefined {
   if (depth > 14 || obj == null || typeof obj !== 'object') return
   if (Array.isArray(obj)) {
     for (const x of obj) {
-      const m = deepFindFeedMid(x, depth + 1)
+      const m = deepFindKeyTimelineMid(x, keys, depth + 1)
       if (m) return m
     }
     return
   }
   const o = obj as Record<string, unknown>
-  for (const k of [
-    'mid',
-    'mblogid',
-    'mblog_id',
-    'status_mid',
-    'longBlogId',
-    'longblog_id',
-    'idstr'
-  ]) {
+  for (const k of keys) {
+    if (!Object.prototype.hasOwnProperty.call(o, k)) continue
     const v = o[k]
     if (v == null) continue
     const s = String(v).replace(/\D/g, '')
-    if (s.length >= 10 && s.length <= 25) return s
+    if (isPlausibleTimelineMidDigits(s)) return s
   }
   for (const v of Object.values(o)) {
-    const m = deepFindFeedMid(v, depth + 1)
+    const m = deepFindKeyTimelineMid(v, keys, depth + 1)
     if (m) return m
   }
-  return
+}
+
+/** 从头条保存接口 JSON 里尽量找出「时间线帖」用的 mid（排除误匹配的 article object_id） */
+function deepFindFeedMid (obj: unknown): string | undefined {
+  return (
+    deepFindKeyTimelineMid(
+      obj,
+      ['mid', 'mblogid', 'mblog_id', 'status_mid'],
+      0
+    ) ?? deepFindKeyTimelineMid(obj, ['idstr', 'longBlogId', 'longblog_id'], 0)
+  )
 }
 
 function ttArticleShowUrl (objectId: string): string {
@@ -949,11 +990,27 @@ function headlineSuccessFromParsed (
   const mid = parsed.id
     ? String(parsed.id).replace(/\D/g, '') || String(parsed.id).trim()
     : ''
+
+  if (parsed.url && /^https?:\/\//i.test(parsed.url.trim())) {
+    return {
+      ok: true,
+      platformPostId: mid || parsed.id,
+      publishedUrl: parsed.url.trim()
+    }
+  }
+
+  const idForKind = parsed.id ?? mid
+  if (idForKind && isWeiboArticleNumericObjectId(String(idForKind))) {
+    return {
+      ok: true,
+      platformPostId: mid || String(idForKind),
+      publishedUrl: ttArticleShowUrl(String(idForKind))
+    }
+  }
+
   let publishedUrl: string
-  if (uid && mid && /^\d{5,25}$/.test(mid)) {
+  if (uid && mid && /^\d{5,40}$/.test(mid)) {
     publishedUrl = weiboProfileStatusUrl(uid, mid)
-  } else if (parsed.url && parsed.url.startsWith('http')) {
-    publishedUrl = parsed.url
   } else if (parsed.id) {
     publishedUrl = ttArticleShowUrl(parsed.id)
   } else {

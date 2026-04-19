@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 微信公众号平台适配器实现
  * 
  * 实现 PlatformAdapter 接口，提供微信公众号平台的具体实现。
@@ -398,8 +398,20 @@ export class WechatAdapter implements PlatformAdapter {
 
           // 任务提交成功，轮询发布状态以获取文章链接（微信发布为异步）
           const publishId = publishData.publish_id
+          const msgDataId =
+            typeof publishData.msg_data_id === 'string' && publishData.msg_data_id
+              ? publishData.msg_data_id
+              : typeof publishData.msg_data_id === 'number'
+                ? String(publishData.msg_data_id)
+                : undefined
           console.log('[WechatAdapter] Publish task submitted, publish_id:', publishId)
-          const { articleUrl, articleId } = await this.pollPublishStatus(accessToken, publishId)
+          const { articleUrl, articleId, firstArticleIdx } =
+            await this.pollPublishStatus(accessToken, publishId)
+          let wechatDatacubeMsgid: string | undefined
+          if (msgDataId) {
+            const idx = firstArticleIdx ?? 1
+            wechatDatacubeMsgid = `${msgDataId}_${idx}`
+          }
           // 发布成功后自动群发推送给粉丝
           if (articleId) {
             this.massSendToFollowers(accessToken, articleId).catch((err) => {
@@ -409,7 +421,8 @@ export class WechatAdapter implements PlatformAdapter {
           return {
             success: true,
             platformPostId: publishId,
-            publishedUrl: articleUrl
+            publishedUrl: articleUrl,
+            wechatDatacubeMsgid
           }
         }
       } catch (error) {
@@ -440,7 +453,12 @@ export class WechatAdapter implements PlatformAdapter {
     publishId: string,
     maxAttempts = 10,
     intervalMs = 2000
-  ): Promise<{ articleUrl?: string; articleId?: string }> {
+  ): Promise<{
+    articleUrl?: string
+    articleId?: string
+    /** 首篇图文在群发中的序号，用于拼 datacube msgid */
+    firstArticleIdx?: number
+  }> {
     const getUrl = `https://api.weixin.qq.com/cgi-bin/freepublish/get?access_token=${accessToken}`
     for (let i = 0; i < maxAttempts; i++) {
       await this.sleep(intervalMs)
@@ -463,11 +481,25 @@ export class WechatAdapter implements PlatformAdapter {
         }
         const status = data.publish_status ?? -1
         if (status === 0) {
-          const url = data.article_detail?.item?.[0]?.article_url
+          const first = data.article_detail?.item?.[0]
+          const url = first?.article_url
           const articleId = data.article_id
+          const idxRaw = first?.idx
+          const firstArticleIdx =
+            typeof idxRaw === 'number'
+              ? idxRaw
+              : typeof idxRaw === 'string'
+                ? Number.parseInt(idxRaw, 10)
+                : undefined
           if (url) console.log('[WechatAdapter] Article URL:', url)
           if (articleId) console.log('[WechatAdapter] Article ID:', articleId)
-          return { articleUrl: url, articleId }
+          return {
+            articleUrl: url,
+            articleId,
+            firstArticleIdx: Number.isFinite(firstArticleIdx)
+              ? firstArticleIdx
+              : undefined
+          }
         }
         if (status >= 2 && status <= 6) {
           console.warn('[WechatAdapter] Publish failed, status:', status)

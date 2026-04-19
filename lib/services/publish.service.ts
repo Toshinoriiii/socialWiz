@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 统一发布服务
  * 将平台配置与各平台发布方法结合，提供统一的发布接口
  */
@@ -15,12 +15,14 @@ import { decryptWeiboToken } from '@/lib/utils/weibo-token-crypto'
 import { isTokenExpired } from '@/lib/platforms/weibo/weibo-utils'
 import type {
   WechatPublishConfigData,
-  WeiboPublishConfigData
+  WeiboPublishConfigData,
+  ZhihuPublishConfigData
 } from '@/types/platform-config.types'
-import { isWeiboConfig } from '@/types/platform-config.types'
+import { isWeiboConfig, isZhihuConfig } from '@/types/platform-config.types'
 import {
   isWeiboBrowserSessionAccount,
-  isWechatBrowserSessionAccount
+  isWechatBrowserSessionAccount,
+  isZhihuBrowserSessionAccount
 } from '@/lib/platforms/connection-kind'
 import {
   NonOfficialPublishService,
@@ -61,6 +63,7 @@ export interface UnifiedPublishResult {
   success: boolean
   platformPostId?: string
   publishedUrl?: string
+  wechatDatacubeMsgid?: string
   message?: string
   error?: string
   /** 非官方引擎异步任务 */
@@ -106,6 +109,8 @@ export class PublishService {
         return this.publishWechat(input)
       case Platform.WEIBO:
         return this.publishWeibo(input)
+      case Platform.ZHIHU:
+        return this.publishZhihu(input)
       default:
         return {
           success: false,
@@ -294,6 +299,7 @@ export class PublishService {
       requiresJobPolling: false,
       platformPostId: publishResult.platformPostId,
       publishedUrl: publishResult.publishedUrl,
+      wechatDatacubeMsgid: publishResult.wechatDatacubeMsgid,
       message: publishResult.publishedUrl
         ? `已通过官方接口发布：${publishResult.publishedUrl}`
         : '已通过官方接口提交发布'
@@ -461,6 +467,107 @@ export class PublishService {
       platformPostId: result.platformPostId,
       publishedUrl: result.publishedUrl,
       message: '内容已成功发布到微博',
+    }
+  }
+
+  /**
+   * 知乎：浏览器会话发专栏文章（zhuanlan.zhihu.com/api/articles/*）。
+   */
+  private static async publishZhihu (
+    input: UnifiedPublishInput
+  ): Promise<UnifiedPublishResult> {
+    const {
+      userId,
+      accountId,
+      content,
+      contentId,
+      title,
+      publishConfigId,
+      deferContentPublishedUpdate
+    } = input
+
+    let zhihuPublishConfig: ZhihuPublishConfigData | undefined
+    if (publishConfigId) {
+      const pc = await PlatformConfigService.getConfigById(
+        publishConfigId,
+        userId
+      )
+      if (pc?.platform === Platform.ZHIHU && isZhihuConfig(pc.configData)) {
+        zhihuPublishConfig = pc.configData
+      }
+    }
+
+    const platformAccount = await prisma.platformAccount.findUnique({
+      where: { id: accountId }
+    })
+    if (!platformAccount) {
+      return { success: false, error: '平台账号不存在' }
+    }
+    if (platformAccount.userId !== userId) {
+      return { success: false, error: '无权访问此账号' }
+    }
+    if (!platformAccount.isConnected) {
+      return { success: false, error: '账号未连接，请先连接账号' }
+    }
+    if (platformAccount.platform !== Platform.ZHIHU) {
+      return { success: false, error: '账号类型错误' }
+    }
+
+    if (!isZhihuBrowserSessionAccount(platformAccount)) {
+      return {
+        success: false,
+        error: '当前知乎账号不是浏览器会话绑定，请使用「连接知乎（浏览器）」'
+      }
+    }
+
+    let body = content.trim()
+    let zhihuTitle = stripMarkdownFromTitle(title.trim() || '')
+    if (contentId) {
+      const c = await prisma.content.findUnique({ where: { id: contentId } })
+      if (c) {
+        body = (c.content || body).trim()
+        if (!zhihuTitle && c.title) {
+          zhihuTitle = stripMarkdownFromTitle(String(c.title).trim())
+        }
+      }
+    }
+    if (!body) {
+      return { success: false, error: '内容不能为空' }
+    }
+
+    const r = await NonOfficialPublishService.publishZhihuBrowserSession({
+      userId,
+      platformAccountId: accountId,
+      title: zhihuTitle || body.slice(0, 80),
+      text: body,
+      contentId,
+      source: 'unified_publish',
+      zhihuPublishConfig,
+      deferContentPublishedUpdate,
+      coverImage: input.coverImage
+        ? {
+            buffer: input.coverImage.buffer,
+            contentType: input.coverImage.contentType
+          }
+        : undefined
+    })
+
+    if (!r.success) {
+      return {
+        success: false,
+        error: r.error,
+        message: r.message,
+        jobId: r.jobId,
+        requiresJobPolling: !!r.jobId
+      }
+    }
+    return {
+      success: true,
+      jobId: r.jobId,
+      requiresJobPolling: true,
+      message: r.message,
+      platformPostId: r.platformPostId,
+      publishedUrl: r.publishedUrl
     }
   }
 

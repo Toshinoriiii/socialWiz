@@ -4,18 +4,77 @@ import { getPublishPlugin } from '@/lib/platforms/publish-plugins'
 import { Platform } from '@/types/platform.types'
 import {
   isWeiboBrowserSessionAccount,
-  isWechatBrowserSessionAccount
+  isWechatBrowserSessionAccount,
+  isZhihuBrowserSessionAccount
 } from '@/lib/platforms/connection-kind'
 import type { PublishJobPayload } from '@/types/publish-job'
 import { readWeiboPlaywrightProfile } from '@/lib/weibo-playwright/session-files'
-import { normalizeWeiboSessionPublishMeta } from '@/lib/weibo-playwright/weibo-profile-status-url'
+import {
+  isWeiboTtarticlePublishedUrl,
+  normalizeWeiboSessionPublishMeta
+} from '@/lib/weibo-playwright/weibo-profile-status-url'
 import {
   fetchWeiboStatusInsightsWithSessionCookies,
+  findFeedMidByWeiboArticleObjectIdWithRetry,
+  isWeiboArticleNumericObjectId,
   type WeiboCookieStatusInsights
 } from '@/lib/weibo-playwright/weibo-status-cookie'
+import {
+  extractTtarticleObjectIdFromUrl,
+  weiboTtarticleShowUrl
+} from '@/lib/weibo-playwright/weibo-ttarticle-insights'
 import { appendWechatMpPublishSettingsHint } from '@/lib/utils/wechat-publish-user-hints'
-import type { WeiboPublishConfigData } from '@/types/platform-config.types'
+import { effectivePublishContentTypeFromRecord } from '@/lib/utils/content-publish-type'
+import type {
+  WeiboPublishConfigData,
+  ZhihuPublishConfigData
+} from '@/types/platform-config.types'
 import type { ImagePart } from '@/lib/weibo-playwright/weibo-web-pic-upload'
+
+/**
+ * 发布落库前：头条 object_id 与 time line mid 不一致时，从时间线反查 mid 并统一写入。
+ */
+export async function finalizeWeiboIdsForContentPlatform (
+  userId: string,
+  platformPostId: string | null,
+  publishedUrl: string | null
+): Promise<{
+  platformPostId: string | null
+  publishedUrl: string | null
+  weiboTimelineMid: string | null
+}> {
+  const profile = readWeiboPlaywrightProfile(userId)
+  const uid = profile?.weiboUid?.replace(/\D/g, '') ?? ''
+  let pid = platformPostId?.trim() || null
+  let url = publishedUrl?.trim() || null
+
+  const oidFromUrl = extractTtarticleObjectIdFromUrl(url)
+  const pidDigits = pid?.replace(/\D/g, '') ?? ''
+  const articleOid =
+    oidFromUrl ??
+    (pidDigits && isWeiboArticleNumericObjectId(pidDigits) ? pidDigits : null)
+
+  if (articleOid) {
+    const mid = await findFeedMidByWeiboArticleObjectIdWithRetry(userId, articleOid)
+    if (mid) {
+      const articlePageUrl = isWeiboTtarticlePublishedUrl(url)
+        ? url
+        : weiboTtarticleShowUrl(articleOid)
+      return {
+        platformPostId: mid,
+        publishedUrl: articlePageUrl,
+        weiboTimelineMid: mid
+      }
+    }
+  }
+
+  let weiboTimelineMid: string | null = null
+  if (pid && /^\d{5,40}$/.test(pid) && !isWeiboArticleNumericObjectId(pid)) {
+    weiboTimelineMid = pid
+  }
+
+  return { platformPostId: pid, publishedUrl: url, weiboTimelineMid }
+}
 
 export type WeiboSessionPostInsights = WeiboCookieStatusInsights
 
@@ -55,6 +114,28 @@ export interface WechatSessionPublishApiResult {
   message?: string /** 成功时的提示或 hint */
   platformPostId?: string
   publishedUrl?: string
+}
+
+export interface ZhihuSessionPublishApiResult {
+  success: boolean
+  jobId?: string
+  error?: string
+  message?: string
+  platformPostId?: string
+  publishedUrl?: string
+}
+
+export interface ZhihuSessionPublishParams {
+  userId: string
+  platformAccountId: string
+  title: string
+  text: string
+  contentId?: string
+  source: PublishJobPayload['source']
+  zhihuPublishConfig?: ZhihuPublishConfigData
+  deferContentPublishedUpdate?: boolean
+  /** 专栏封面，可选 */
+  coverImage?: { buffer: Buffer; contentType?: string }
 }
 
 export interface WechatSessionPublishParams {
@@ -177,11 +258,21 @@ export class NonOfficialPublishService {
     let platformPostId = normalized.platformPostId
     let publishedUrl = normalized.publishedUrl
 
+    const weiboResolved = await finalizeWeiboIdsForContentPlatform(
+      userId,
+      platformPostId,
+      publishedUrl
+    )
+    platformPostId = weiboResolved.platformPostId
+    publishedUrl = weiboResolved.publishedUrl
+    const weiboTimelineMid = weiboResolved.weiboTimelineMid
+
     let postInsights: WeiboCookieStatusInsights | undefined
-    if (platformPostId && /^\d{5,25}$/.test(platformPostId)) {
+    const insightId = weiboTimelineMid ?? platformPostId
+    if (insightId && /^\d{5,40}$/.test(insightId)) {
       const ins = await fetchWeiboStatusInsightsWithSessionCookies(
         userId,
-        platformPostId
+        insightId
       )
       if (ins.ok) postInsights = ins.data
     }
@@ -217,6 +308,8 @@ export class NonOfficialPublishService {
             platformContentId:
               platformPostId || existing.platformContentId || null,
             publishedUrl: publishedUrl || existing.publishedUrl || null,
+            weiboTimelineMid: weiboTimelineMid ?? undefined,
+            platformPublishedAt: new Date(),
             publishStatus: 'SUCCESS',
             errorMessage: null
           }
@@ -228,6 +321,8 @@ export class NonOfficialPublishService {
             platformAccountId,
             platformContentId: platformPostId || null,
             publishedUrl: publishedUrl || null,
+            weiboTimelineMid: weiboTimelineMid ?? undefined,
+            platformPublishedAt: new Date(),
             publishStatus: 'SUCCESS'
           }
         })
@@ -391,6 +486,7 @@ export class NonOfficialPublishService {
           data: {
             platformContentId: platformPostId || existing.platformContentId || null,
             publishedUrl: publishedUrl || existing.publishedUrl || null,
+            platformPublishedAt: new Date(),
             publishStatus: 'SUCCESS',
             errorMessage: null
           }
@@ -402,6 +498,7 @@ export class NonOfficialPublishService {
             platformAccountId,
             platformContentId: platformPostId || null,
             publishedUrl: publishedUrl || null,
+            platformPublishedAt: new Date(),
             publishStatus: 'SUCCESS'
           }
         })
@@ -427,6 +524,172 @@ export class NonOfficialPublishService {
       message: publishedUrl
         ? `群发已提交。文章链接：${publishedUrl}`
         : result.hint || '群发已提交，请在公众平台发表记录查看或稍后刷新本条记录以同步链接。'
+    }
+  }
+
+  /**
+   * 知乎浏览器会话：创建 PublishJob、走 zhuanlan 文章 drafts → draft → publish。
+   */
+  static async publishZhihuBrowserSession (
+    params: ZhihuSessionPublishParams
+  ): Promise<ZhihuSessionPublishApiResult> {
+    const {
+      userId,
+      platformAccountId,
+      title,
+      text,
+      contentId,
+      source,
+      zhihuPublishConfig,
+      deferContentPublishedUpdate,
+      coverImage
+    } = params
+
+    const account = await prisma.platformAccount.findUnique({
+      where: { id: platformAccountId }
+    })
+    if (!account || account.userId !== userId) {
+      return { success: false, error: '平台账号不存在或无权访问' }
+    }
+    if (!account.isConnected) {
+      return { success: false, error: '账号未连接' }
+    }
+    if (!isZhihuBrowserSessionAccount(account)) {
+      return { success: false, error: '非浏览器会话型知乎账号' }
+    }
+
+    if (contentId) {
+      const c = await prisma.content.findFirst({
+        where: { id: contentId, userId },
+        select: { contentType: true, coverImage: true, images: true }
+      })
+      if (
+        c &&
+        effectivePublishContentTypeFromRecord(c) === 'image-text'
+      ) {
+        return {
+          success: false,
+          error: '知乎仅支持文章类型作品，请在文章编辑器中创建后再发布'
+        }
+      }
+    }
+
+    const plugin = getPublishPlugin(Platform.ZHIHU)
+    if (!plugin) {
+      return { success: false, error: '未注册知乎发布插件' }
+    }
+
+    const payload: PublishJobPayload = {
+      text: text.trim(),
+      source: source ?? 'unified_publish',
+      title
+    }
+
+    const job = await prisma.publishJob.create({
+      data: {
+        userId,
+        platformAccountId,
+        contentId: contentId ?? null,
+        payload: payload as object,
+        status: PublishJobStatus.QUEUED
+      }
+    })
+
+    await prisma.publishJob.update({
+      where: { id: job.id },
+      data: { status: PublishJobStatus.RUNNING }
+    })
+
+    const result = await plugin.publishText(
+      { userId, platformAccountId, contentId },
+      text,
+      { title, zhihuPublishConfig, coverImage }
+    )
+
+    if (!result.ok) {
+      await prisma.publishJob.update({
+        where: { id: job.id },
+        data: {
+          status: PublishJobStatus.FAILED,
+          errorMessage: [result.error, result.detail].filter(Boolean).join(' — ').slice(0, 2000)
+        }
+      })
+      return {
+        success: false,
+        jobId: job.id,
+        error:
+          [result.error, result.detail].filter(Boolean).join(' — ').slice(0, 2000) ||
+          '发布失败',
+        message: result.hint
+      }
+    }
+
+    const platformPostId = result.platformPostId ?? null
+    const publishedUrl = result.publishedUrl ?? null
+
+    await prisma.publishJob.update({
+      where: { id: job.id },
+      data: {
+        status: PublishJobStatus.SUCCESS,
+        errorMessage: null,
+        platformPostId
+      }
+    })
+    await prisma.$executeRaw`
+      UPDATE "publish_jobs"
+      SET "publishedUrl" = ${publishedUrl}, "updatedAt" = ${new Date()}
+      WHERE "id" = ${job.id}
+    `
+
+    if (contentId && platformAccountId) {
+      const existing = await prisma.contentPlatform.findFirst({
+        where: { contentId, platformAccountId }
+      })
+      if (existing) {
+        await prisma.contentPlatform.update({
+          where: { id: existing.id },
+          data: {
+            platformContentId:
+              platformPostId || existing.platformContentId || null,
+            publishedUrl: publishedUrl || existing.publishedUrl || null,
+            platformPublishedAt: new Date(),
+            publishStatus: 'SUCCESS',
+            errorMessage: null
+          }
+        })
+      } else {
+        await prisma.contentPlatform.create({
+          data: {
+            contentId,
+            platformAccountId,
+            platformContentId: platformPostId || null,
+            publishedUrl: publishedUrl || null,
+            platformPublishedAt: new Date(),
+            publishStatus: 'SUCCESS'
+          }
+        })
+      }
+    }
+
+    if (contentId && !deferContentPublishedUpdate) {
+      await prisma.content.updateMany({
+        where: { id: contentId, userId },
+        data: {
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          updatedAt: new Date()
+        }
+      })
+    }
+
+    return {
+      success: true,
+      jobId: job.id,
+      platformPostId: platformPostId ?? undefined,
+      publishedUrl: publishedUrl ?? undefined,
+      message: publishedUrl
+        ? `发布已完成。链接：${publishedUrl}`
+        : '发布流程已执行，请在知乎专栏文章中确认。'
     }
   }
 

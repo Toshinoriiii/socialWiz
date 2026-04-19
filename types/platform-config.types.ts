@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 平台发布配置类型定义
  * Feature: 006-platform-publish-config
  */
@@ -27,8 +27,39 @@ export interface PlatformPublishConfig {
 export type PlatformConfigData =
   | WechatPublishConfigData
   | WeiboPublishConfigData
+  | ZhihuPublishConfigData
   | DouyinPublishConfigData
   | XiaohongshuPublishConfigData
+
+/** 知乎文章「创作声明」（写入草稿时的具体字段依平台版本可能调整） */
+export type ZhihuArticleCreationDeclaration =
+  | 'none'
+  | 'medical'
+  | 'fictional'
+  | 'ai_generated'
+  | 'investment'
+  | 'commercial'
+
+/**
+ * 知乎专栏文章发布配置（zhuanlan.zhihu.com/api/articles/* 与搜索解析）
+ */
+export interface ZhihuPublishConfigData {
+  type: 'zhihu'
+  /** PUT publish：commentPermission，默认 anyone（界面未展示时保持默认） */
+  articleCommentPermission?: 'anyone' | 'nobody'
+  /** 投稿至问题：按关键词搜索，取第一条问题绑定 */
+  articleSubmitToQuestionKeywords?: string
+  /** 创作声明 */
+  articleCreationDeclaration?: ZhihuArticleCreationDeclaration
+  /**
+   * 文章话题：以 / 分割，最多 3 个；按话题名搜索取 id 写入草稿 topics
+   */
+  articleTopicsLine?: string
+  /**
+   * 专栏名称或 slug（与写作台 URL 一致）；空表示不发布到专栏
+   */
+  zhuanlanColumnName?: string
+}
 
 /**
  * 微信公众号发布配置
@@ -146,6 +177,12 @@ export function isWeiboConfig(
   data: PlatformConfigData
 ): data is WeiboPublishConfigData {
   return data.type === 'weibo'
+}
+
+export function isZhihuConfig (
+  data: PlatformConfigData
+): data is ZhihuPublishConfigData {
+  return data.type === 'zhihu'
 }
 
 /**

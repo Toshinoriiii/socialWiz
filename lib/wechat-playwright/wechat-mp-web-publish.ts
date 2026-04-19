@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 微信公众号：用 Playwright 落盘的 Cookie 复现 mp.weixin.qq.com 网页端链路。
  * 接口形态参考开源分析（operate_appmsg / masssend），以线上实际响应为准；改版需重抓包。
  */
@@ -179,6 +179,39 @@ async function resolveMpTokenAndCookie (
   const { token } = await followUntilToken(cookieHeader)
   if (!token) return null
   return { token, cookieHeader }
+}
+
+/** 供 misc/appmsganalysis 等仅需 token + Cookie 的页面拉取 */
+export async function resolveWechatMpTokenAndCookie (
+  userId: string
+): Promise<{ token: string; cookieHeader: string } | null> {
+  return resolveMpTokenAndCookie(userId)
+}
+
+const MP_SESSION_PROBE_MS = 12_000
+
+/**
+ * 仅用 Cookie 跟随重定向解析公众平台 token，判断 mp 登录是否仍有效（账号列表探测，不做群发页拉取）。
+ * @returns true 能拿到 token；false 有 Cookie 但拿不到 token（多已登出）；null 超时或无法判断。
+ */
+export async function probeWechatMpPlaywrightSessionAlive (
+  userId: string
+): Promise<boolean | null> {
+  const cookies = readWechatPlaywrightStorageCookies(userId)
+  if (!cookies?.length) return null
+  const cookieHeader = cookieHeaderForUrl(MP + '/', cookies)
+  if (!cookieHeader) return null
+
+  const raced = await Promise.race([
+    followUntilToken(cookieHeader).then((x) => ({ kind: 'done' as const, token: x.token })),
+    new Promise<{ kind: 'timeout' }>((resolve) => {
+      setTimeout(() => resolve({ kind: 'timeout' }), MP_SESSION_PROBE_MS)
+    })
+  ])
+
+  if (raced.kind === 'timeout') return null
+  if (raced.token != null && String(raced.token).length > 0) return true
+  return false
 }
 
 function normalizeMpNickname (raw: string | undefined | null): string | null {
@@ -457,11 +490,16 @@ async function fetchMasssendpagePreviewAppmsg (
 }
 
 /** 与浏览器「发表记录」列表请求一致（含 type / free_publish_type / sub_action=list_ex） */
-function buildAppmsgpublishListQuery (ctx: MpAdminContext): URLSearchParams {
+function buildAppmsgpublishListQuery (
+  ctx: MpAdminContext,
+  listOpts?: { begin?: number; count?: number }
+): URLSearchParams {
+  const begin = listOpts?.begin ?? 0
+  const count = listOpts?.count ?? 10
   const qs = new URLSearchParams({
     sub: 'list',
-    begin: '0',
-    count: '10',
+    begin: String(begin),
+    count: String(count),
     query: '',
     type: '101_1_102_103',
     show_type: '',
@@ -680,9 +718,10 @@ function extractUrlForAppmsgId (data: unknown, appmsgid: string): string | null 
 
 async function fetchAppmsgpublishListJson (
   ctx: MpAdminContext,
-  referer: string
+  referer: string,
+  listOpts?: { begin?: number; count?: number }
 ): Promise<Record<string, unknown> | null> {
-  const qs = buildAppmsgpublishListQuery(ctx)
+  const qs = buildAppmsgpublishListQuery(ctx, listOpts)
   const url = `${MP}/cgi-bin/appmsgpublish?${qs.toString()}`
   const r = await fetch(url, {
     headers: {
@@ -695,6 +734,26 @@ async function fetchAppmsgpublishListJson (
   })
   const j = (await r.json().catch(() => null)) as Record<string, unknown> | null
   return j && typeof j === 'object' ? j : null
+}
+
+/**
+ * 使用本机绑定的公众平台浏览器会话拉取「发表记录」列表 JSON（与后台
+ * `cgi-bin/appmsgpublish?sub=list&…` 一致），供数据概览等在无开发者凭证时读阅读/互动。
+ */
+export async function fetchMpAppmsgpublishListJsonForUser (
+  userId: string,
+  listOpts?: { begin?: number; count?: number }
+): Promise<Record<string, unknown> | null> {
+  const ctx = await resolveMpContext(userId)
+  if (!ctx) return null
+  const refHome = `${MP}/cgi-bin/home?t=home/index&token=${ctx.token}&lang=zh_CN`
+  const j = await fetchAppmsgpublishListJson(ctx, refHome, listOpts)
+  if (!j) return null
+  const br = j.base_resp as { ret?: number } | undefined
+  const hasPage =
+    typeof j.publish_page === 'string' && (j.publish_page as string).length > 20
+  if (br && br.ret != null && br.ret !== 0 && !hasPage) return null
+  return j
 }
 
 /** 素材/记录列表；常含 app_msg_list[].link（与 mp.weixin.qq.com/s/... 同形） */

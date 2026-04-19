@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -41,6 +41,7 @@ interface PublishRecord {
 const PLATFORM_ICONS: Record<string, React.ElementType> = {
   WECHAT: MessageCircle,
   WEIBO: MessageCircle,
+  ZHIHU: FileText
 }
 
 interface PublishStatusPlatformRow {
@@ -60,9 +61,13 @@ interface PublishStatusPayload {
   platforms: PublishStatusPlatformRow[]
 }
 
+/** 知乎品牌蓝 #0084ff，浅底与描边便于在卡片上阅读 */
 function platformBadgeClass (platform: string): string {
   if (platform === 'WECHAT') return 'bg-green-100 text-green-700 border-green-200'
   if (platform === 'WEIBO') return 'bg-orange-100 text-orange-700 border-orange-200'
+  if (platform === 'ZHIHU') {
+    return 'border-[#b3dfff] bg-[#e8f4ff] text-[#0084ff]'
+  }
   return 'bg-neutral-100 text-neutral-700 border-neutral-200'
 }
 
@@ -230,13 +235,7 @@ export default function PublishHistoryPage() {
                           <Badge
                             key={p.id}
                             variant="secondary"
-                            className={
-                              p.platform === 'WECHAT'
-                                ? 'bg-green-100 text-green-700'
-                                : p.platform === 'WEIBO'
-                                  ? 'bg-orange-100 text-orange-700'
-                                  : 'bg-neutral-100 text-neutral-700'
-                            }
+                            className={`border font-normal ${platformBadgeClass(p.platform)}`}
                           >
                             <PlatformIcon className="size-3 mr-1" />
                             {p.platformName}

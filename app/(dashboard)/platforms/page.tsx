@@ -20,28 +20,33 @@ const PLATFORM_INFO = [
   {
     id: Platform.WECHAT,
     name: '微信公众号',
-    supportedTypes: ['文章'],
-    description: '公众平台图文、草稿与正式发布能力'
+    supportedTypes: ['文章']
   },
   {
     id: Platform.WEIBO,
     name: '微博',
-    supportedTypes: ['文章', '图文'],
-    description: '头条文章与会话图文，浏览器会话发博'
+    supportedTypes: ['文章', '图文']
+  },
+  {
+    id: Platform.ZHIHU,
+    name: '知乎',
+    supportedTypes: ['文章']
   },
   {
     id: Platform.DOUYIN,
     name: '抖音',
-    supportedTypes: ['视频'],
-    description: '短视频发布（能力接入中）'
+    supportedTypes: ['视频']
   },
   {
     id: Platform.XIAOHONGSHU,
     name: '小红书',
-    supportedTypes: ['图文', '视频'],
-    description: '笔记与视频（能力接入中）'
+    supportedTypes: ['图文', '视频']
   }
 ] as const
+
+function platformSupportLine (types: readonly string[]): string {
+  return `支持发布：${types.join('、')}`
+}
 
 export default function PlatformsPage () {
   const { user } = useUserStore()
@@ -89,7 +94,11 @@ export default function PlatformsPage () {
     }
   }
 
-  const platformsWithConfigUi: Platform[] = [Platform.WECHAT, Platform.WEIBO]
+  const platformsWithConfigUi: Platform[] = [
+    Platform.WECHAT,
+    Platform.WEIBO,
+    Platform.ZHIHU
+  ]
 
   const handleConfigClick = (platformId: Platform) => {
     if (platformsWithConfigUi.includes(platformId)) {
@@ -130,7 +139,7 @@ export default function PlatformsPage () {
                       {platform.name}
                     </CardTitle>
                     <p className="text-sm leading-snug text-muted-foreground">
-                      {platform.description}
+                      {platformSupportLine(platform.supportedTypes)}
                     </p>
                   </div>
                 </div>
@@ -196,6 +205,7 @@ export default function PlatformsPage () {
 
         {selectedPlatform ? (
           <PlatformConfigDialog
+            key={selectedPlatform}
             platform={selectedPlatform}
             platformName={
               PLATFORM_INFO.find((p) => p.id === selectedPlatform)?.name ?? ''

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 平台字段配置定义
  * Feature: 006-platform-publish-config
  * 
@@ -156,6 +156,52 @@ export const DOUYIN_CONFIG_FIELDS: PlatformFieldConfig[] = [
 /**
  * 小红书配置字段
  */
+/**
+ * 知乎发布配置（与 ZhihuConfigFields 一致，供元数据/默认值）
+ */
+export const ZHIHU_CONFIG_FIELDS: PlatformFieldConfig[] = [
+  {
+    key: 'articleSubmitToQuestionKeywords',
+    label: '投稿至问题',
+    type: FieldType.TEXT,
+    required: false,
+    helpText: '问题关键词，取搜索结果第一条',
+    defaultValue: ''
+  },
+  {
+    key: 'articleCreationDeclaration',
+    label: '创作声明',
+    type: FieldType.SELECT,
+    required: false,
+    helpText: '写入草稿 disclaimer_type（以抓包为准）',
+    options: [
+      { value: 'none', label: '无声明' },
+      { value: 'medical', label: '包含医疗建议' },
+      { value: 'fictional', label: '虚构创作' },
+      { value: 'ai_generated', label: '包含 AI 生成内容' },
+      { value: 'investment', label: '包含投资理财内容' },
+      { value: 'commercial', label: '品牌推广/商业合作' }
+    ],
+    defaultValue: 'none'
+  },
+  {
+    key: 'articleTopicsLine',
+    label: '文章话题',
+    type: FieldType.TEXT,
+    required: false,
+    helpText: '以 / 分割，最多 3 个',
+    defaultValue: ''
+  },
+  {
+    key: 'zhuanlanColumnName',
+    label: '专栏',
+    type: FieldType.TEXT,
+    required: false,
+    helpText: '专栏名称或 slug，空则不投专栏',
+    defaultValue: ''
+  }
+]
+
 export const XIAOHONGSHU_CONFIG_FIELDS: PlatformFieldConfig[] = [
   {
     key: 'noteType',
@@ -197,6 +243,8 @@ export function getPlatformFields(platform: Platform): PlatformFieldConfig[] {
       return WECHAT_CONFIG_FIELDS
     case Platform.WEIBO:
       return WEIBO_CONFIG_FIELDS
+    case Platform.ZHIHU:
+      return ZHIHU_CONFIG_FIELDS
     case Platform.DOUYIN:
       return DOUYIN_CONFIG_FIELDS
     case Platform.XIAOHONGSHU:
@@ -217,6 +265,7 @@ export function getDefaultConfigData(platform: Platform): Record<string, any> {
   const platformTypeMap: Record<Platform, string> = {
     [Platform.WECHAT]: 'wechat',
     [Platform.WEIBO]: 'weibo',
+    [Platform.ZHIHU]: 'zhihu',
     [Platform.DOUYIN]: 'douyin',
     [Platform.XIAOHONGSHU]: 'xiaohongshu'
   }

@@ -124,7 +124,9 @@ export async function POST(
           where: { id: existing.id },
           data: {
             platformContentId: result.platformPostId,
+            wechatDatacubeMsgid: result.wechatDatacubeMsgid ?? undefined,
             publishedUrl: result.publishedUrl,
+            platformPublishedAt: new Date(),
             publishStatus: 'SUCCESS'
           }
         })
@@ -134,7 +136,9 @@ export async function POST(
             contentId,
             platformAccountId,
             platformContentId: result.platformPostId,
+            wechatDatacubeMsgid: result.wechatDatacubeMsgid ?? undefined,
             publishedUrl: result.publishedUrl,
+            platformPublishedAt: new Date(),
             publishStatus: 'SUCCESS'
           }
         })

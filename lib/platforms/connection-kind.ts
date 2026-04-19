@@ -1,4 +1,4 @@
-﻿import type { PlatformAccount } from '@prisma/client'
+import type { PlatformAccount } from '@prisma/client'
 import {
   isPlaywrightWeiboUserId,
   WEIBO_PLAYWRIGHT_ACCESS_TOKEN_SENTINEL
@@ -7,6 +7,10 @@ import {
   isPlaywrightWeChatUserId,
   WECHAT_PLAYWRIGHT_ACCESS_TOKEN_SENTINEL
 } from '@/lib/wechat-playwright/session-files'
+import {
+  isPlaywrightZhihuUserId,
+  ZHIHU_PLAYWRIGHT_ACCESS_TOKEN_SENTINEL
+} from '@/lib/zhihu-playwright/session-files'
 
 /** 微博：Playwright 保存的网页会话，非开放平台 access_token */
 export function isWeiboBrowserSessionAccount(account: PlatformAccount): boolean {
@@ -29,5 +33,14 @@ export function isWechatBrowserSessionAccount(account: PlatformAccount): boolean
   return (
     isPlaywrightWeChatUserId(account.platformUserId) ||
     account.accessToken === WECHAT_PLAYWRIGHT_ACCESS_TOKEN_SENTINEL
+  )
+}
+
+/** 知乎：www.zhihu.com Playwright 会话 */
+export function isZhihuBrowserSessionAccount (account: PlatformAccount): boolean {
+  if (account.platform !== 'ZHIHU') return false
+  return (
+    isPlaywrightZhihuUserId(account.platformUserId) ||
+    account.accessToken === ZHIHU_PLAYWRIGHT_ACCESS_TOKEN_SENTINEL
   )
 }

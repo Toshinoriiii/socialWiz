@@ -73,56 +73,89 @@ const getRedisClient = (): Redis | null => {
 
 export const redis = getRedisClient()
 
+function markRedisDown (): void {
+  globalForRedis.redisConnected = false
+}
+
+/** 连接已断开、MISCONF 拒绝写入等情况下 ioredis 仍会抛错，业务侧应降级为无缓存 */
+async function safeRedisOp<T> (
+  op: () => Promise<T>,
+  fallback: T
+): Promise<T> {
+  if (!redis) return fallback
+  try {
+    return await op()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (
+      /Connection is closed|ECONNRESET|ECONNREFUSED|MISCONF|READONLY|LOADING/i.test(
+        msg
+      )
+    ) {
+      markRedisDown()
+    }
+    console.warn('[Redis] 缓存操作失败，已跳过:', msg)
+    return fallback
+  }
+}
+
 // 缓存助手函数
 export const cacheHelper = {
   // 设置缓存
   async set (key: string, value: any, ttl?: number): Promise<void> {
-    if (!redis) return
     const data = JSON.stringify(value)
-    if (ttl) {
-      await redis.setex(key, ttl, data)
-    } else {
-      await redis.set(key, data)
-    }
+    await safeRedisOp(async () => {
+      if (ttl) {
+        await redis!.setex(key, ttl, data)
+      } else {
+        await redis!.set(key, data)
+      }
+    }, undefined)
   },
 
   // 获取缓存
   async get<T> (key: string): Promise<T | null> {
-    if (!redis) return null
-    const data = await redis.get(key)
-    if (!data) return null
-    try {
-      return JSON.parse(data) as T
-    } catch {
-      return null
-    }
+    return safeRedisOp(async () => {
+      const data = await redis!.get(key)
+      if (!data) return null
+      try {
+        return JSON.parse(data) as T
+      } catch {
+        return null
+      }
+    }, null)
   },
 
   // 删除缓存
   async del (key: string): Promise<void> {
-    if (!redis) return
-    await redis.del(key)
+    await safeRedisOp(async () => {
+      await redis!.del(key)
+    }, undefined)
   },
 
   // 批量删除
   async delPattern (pattern: string): Promise<void> {
-    if (!redis) return
-    const keys = await redis.keys(pattern)
-    if (keys.length > 0) {
-      await redis.del(...keys)
-    }
+    await safeRedisOp(async () => {
+      const keys = await redis!.keys(pattern)
+      if (keys.length > 0) {
+        await redis!.del(...keys)
+      }
+    }, undefined)
   },
 
   // 检查缓存是否存在
   async exists (key: string): Promise<boolean> {
-    if (!redis) return false
-    return (await redis.exists(key)) === 1
+    return safeRedisOp(
+      async () => (await redis!.exists(key)) === 1,
+      false
+    )
   },
 
   // 设置过期时间
   async expire (key: string, ttl: number): Promise<void> {
-    if (!redis) return
-    await redis.expire(key, ttl)
+    await safeRedisOp(async () => {
+      await redis!.expire(key, ttl)
+    }, undefined)
   }
 }
 

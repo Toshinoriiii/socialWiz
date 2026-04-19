@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { useUserStore } from '@/store/user.store'
 import { cn } from '@/lib/utils'
+import { effectivePublishContentTypeFromRecord } from '@/lib/utils/content-publish-type'
 import { toast } from 'sonner'
 import { FileText, Edit, Send, Calendar, Loader2, Image as ImageIcon, History, Trash2 } from 'lucide-react'
 import {
@@ -54,16 +55,6 @@ function draftThumbSrc (draft: Draft): string | null {
     .find((s) => s.length > 0)
   const raw = cover || first || null
   return raw ? normalizeDraftThumbUrl(raw) : null
-}
-
-/** 与编辑跳转逻辑一致，用于展示「文章 / 图文」类型 */
-function effectiveDraftContentType (draft: Draft): 'article' | 'image-text' {
-  if (draft.contentType === 'image-text') return 'image-text'
-  if (draft.contentType === 'article') return 'article'
-  const hasImages = draft.images && draft.images.length > 0
-  const hasCoverImage = draft.coverImage && draft.coverImage.trim().length > 0
-  if (hasImages && !hasCoverImage) return 'image-text'
-  return 'article'
 }
 
 export default function WorksManagementPage() {
@@ -232,7 +223,7 @@ export default function WorksManagementPage() {
             <div className="space-y-4">
               {drafts.map((draft, index) => {
                 const thumb = draftThumbSrc(draft) ?? DRAFT_LIST_PLACEHOLDER_IMG
-                const kind = effectiveDraftContentType(draft)
+                const kind = effectivePublishContentTypeFromRecord(draft)
                 return (
                 <div key={draft.id}>
                   <div

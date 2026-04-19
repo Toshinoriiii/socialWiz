@@ -1,5 +1,8 @@
-﻿import type { Platform } from '@/types/platform.types'
-import type { WeiboPublishConfigData } from '@/types/platform-config.types'
+import type { Platform } from '@/types/platform.types'
+import type {
+  WeiboPublishConfigData,
+  ZhihuPublishConfigData
+} from '@/types/platform-config.types'
 import type { ImagePart } from '@/lib/weibo-playwright/weibo-web-pic-upload'
 
 export type PublishPluginTransport = 'browser' | 'http_replay'
@@ -42,7 +45,18 @@ export type WechatPublishExtras = {
   coverFallback?: { buffer: Buffer; filename: string; contentType: string }
 }
 
-export type PublishExtras = WeiboPublishExtras | WechatPublishExtras
+/** 知乎网页会话发专栏文章（zhuanlan API） */
+export type ZhihuPublishExtras = {
+  title?: string
+  zhihuPublishConfig?: ZhihuPublishConfigData
+  /** 专栏标题图，走 api.zhihu.com/images 后写入草稿 titleImage */
+  coverImage?: { buffer: Buffer; contentType?: string }
+}
+
+export type PublishExtras =
+  | WeiboPublishExtras
+  | WechatPublishExtras
+  | ZhihuPublishExtras
 
 export interface PlatformPublishPlugin {
   readonly platform: Platform
@@ -63,5 +77,5 @@ export interface UploaderManifestEntry {
   contentKinds: Array<'text' | 'image' | 'video'>
   supportsHeadless: boolean
   /** 运行时插件 */
-  pluginId: 'weibo-playwright'
+  pluginId: 'weibo-playwright' | 'zhihu-playwright'
 }

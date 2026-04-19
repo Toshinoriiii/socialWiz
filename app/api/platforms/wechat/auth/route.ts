@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { WechatAdapter } from '@/lib/platforms/wechat/wechat-adapter'
 import { generateOAuthState } from '@/lib/utils/oauth-state'
 import { getPlatformConfig } from '@/config/platform.config'
@@ -65,8 +65,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 生成 state（重定向到测试页面）
-    const state = generateOAuthState(user.id, 'wechat', `/dashboard/test-wechat${configId ? `?configId=${configId}` : ''}`)
+    // 生成 state（OAuth 完成后非弹窗场景回到账号管理）
+    const state = generateOAuthState(user.id, 'wechat', `/accounts${configId ? `?configId=${configId}` : ''}`)
 
     // 创建适配器并获取授权 URL
     const adapter = new WechatAdapter({

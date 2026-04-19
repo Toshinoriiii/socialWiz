@@ -23,8 +23,28 @@ model User {
   platformPublishConfigs  PlatformPublishConfig[]
   contentRequests         ContentGenerationRequest[]
   publishJobs             PublishJob[]
+  engagementDailySnapshots UserEngagementDailySnapshot[]
 
   @@index([email])
+}
+
+/// 用户级互动数据日快照（刷新概览时写入，用于趋势图；当日多次刷新会更新同一天记录）
+model UserEngagementDailySnapshot {
+  id           String   @id @default(uuid())
+  userId       String
+  /// UTC 当日 0 点，仅按日期区分
+  day          DateTime
+  views        Int      @default(0)
+  comments     Int      @default(0)
+  likes        Int      @default(0)
+  shares       Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([userId, day])
+  @@map("user_engagement_daily_snapshots")
 }
 
 model PlatformAccount {
@@ -120,7 +140,13 @@ model ContentPlatform {
   contentId         String
   platformAccountId String?
   wechatConfigId    String?
+  /// 微信数据统计用 msgid，格式 msg_data_id_图文索引（如 2247490098_1），与 getarticleread / getarticletotal 一致
+  wechatDatacubeMsgid String?
   platformContentId String?
+  /// 微博时间线帖 mid，用于 ajax/statuses/show；头条时往往与 platformContentId（object_id 等）不同
+  weiboTimelineMid  String?
+  /// 该平台侧实际发布完成时间（用于数据统计对齐；与 Content.publishedAt 可不同）
+  platformPublishedAt DateTime?
   publishStatus     PublishStatus        @default(PENDING)
   errorMessage      String?
   publishedUrl      String?
@@ -212,6 +238,7 @@ model PlatformPublishConfig {
 enum Platform {
   WECHAT
   WEIBO
+  ZHIHU
   DOUYIN
   XIAOHONGSHU
 }

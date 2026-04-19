@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 统一发布接口
  * POST /api/platforms/publish
  *
@@ -6,7 +6,7 @@
  *
  * 请求格式: FormData
  * - contentId: string (作品/草稿 ID，用于更新状态并创建发布记录)
- * - platform: string (WECHAT | WEIBO)
+ * - platform: string (WECHAT | WEIBO | ZHIHU)
  * - accountId: string (PlatformAccount.id)
  * - publishConfigId?: string (PlatformPublishConfig id，提供作者、原文链接等)
  * - title: string (标题)
@@ -20,6 +20,7 @@ import { verify } from 'jsonwebtoken'
 import { Platform } from '@/types/platform.types'
 import { prisma } from '@/lib/db/prisma'
 import { PublishService } from '@/lib/services/publish.service'
+import { finalizeWeiboIdsForContentPlatform } from '@/lib/services/non-official-publish.service'
 import { convertToJpegForWechat, createDefaultWechatCover } from '@/lib/utils/image-convert'
 
 export const runtime = 'nodejs'
@@ -120,6 +121,34 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (platform === Platform.ZHIHU) {
+      if (!title?.trim()) {
+        return NextResponse.json(
+          { error: 'Invalid request', details: '标题不能为空' },
+          { status: 400 }
+        )
+      }
+      if (imageFile) {
+        const mime = (imageFile.type || '').toLowerCase()
+        if (mime && !['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'].includes(mime)) {
+          return NextResponse.json(
+            { error: 'Invalid file type', details: '封面仅支持 JPG/PNG/WebP/GIF 图片' },
+            { status: 400 }
+          )
+        }
+        const maxSize = 10 * 1024 * 1024
+        if (imageFile.size > maxSize) {
+          return NextResponse.json(
+            {
+              error: 'File too large',
+              details: `封面大小不能超过 10MB，当前 ${(imageFile.size / 1024 / 1024).toFixed(2)}MB`,
+            },
+            { status: 400 }
+          )
+        }
+      }
+    }
+
     let coverImage: { buffer: Buffer; filename: string; contentType: string } | undefined
     if (imageFile) {
       const arrayBuffer = await imageFile.arrayBuffer()
@@ -172,7 +201,9 @@ export async function POST(request: NextRequest) {
      */
     if (
       result.requiresJobPolling &&
-      (platform === Platform.WEIBO || platform === Platform.WECHAT)
+      (platform === Platform.WEIBO ||
+        platform === Platform.WECHAT ||
+        platform === Platform.ZHIHU)
     ) {
       return NextResponse.json({
         success: true,
@@ -226,7 +257,9 @@ export async function POST(request: NextRequest) {
                 platformAccountId: accountId,
                 wechatConfigId: wechatCfgId,
                 platformContentId: platformContentIdStr,
+                wechatDatacubeMsgid: result.wechatDatacubeMsgid ?? undefined,
                 publishedUrl: result.publishedUrl ?? undefined,
+                platformPublishedAt: new Date(),
                 publishStatus: 'SUCCESS',
               },
             })
@@ -237,12 +270,27 @@ export async function POST(request: NextRequest) {
                 platformAccountId: accountId,
                 wechatConfigId: wechatCfgId,
                 platformContentId: platformContentIdStr,
+                wechatDatacubeMsgid: result.wechatDatacubeMsgid ?? undefined,
                 publishedUrl: result.publishedUrl ?? undefined,
+                platformPublishedAt: new Date(),
                 publishStatus: 'SUCCESS',
               },
             })
           }
-        } else if (platform === Platform.WEIBO) {
+        } else if (platform === Platform.WEIBO || platform === Platform.ZHIHU) {
+          let cpId = platformContentIdStr
+          let pubUrl = result.publishedUrl ?? undefined
+          let weiboTimelineMid: string | null | undefined
+          if (platform === Platform.WEIBO) {
+            const wr = await finalizeWeiboIdsForContentPlatform(
+              userId,
+              platformContentIdStr ?? null,
+              result.publishedUrl ?? null
+            )
+            cpId = wr.platformPostId ?? platformContentIdStr
+            pubUrl = wr.publishedUrl ?? result.publishedUrl ?? undefined
+            weiboTimelineMid = wr.weiboTimelineMid
+          }
           const existing = await prisma.contentPlatform.findFirst({
             where: { contentId, platformAccountId: accountId },
           })
@@ -250,8 +298,12 @@ export async function POST(request: NextRequest) {
             await prisma.contentPlatform.update({
               where: { id: existing.id },
               data: {
-                platformContentId: platformContentIdStr,
-                publishedUrl: result.publishedUrl ?? undefined,
+                platformContentId: cpId,
+                publishedUrl: pubUrl,
+                ...(platform === Platform.WEIBO && weiboTimelineMid
+                  ? { weiboTimelineMid }
+                  : {}),
+                platformPublishedAt: new Date(),
                 publishStatus: 'SUCCESS',
               },
             })
@@ -260,8 +312,12 @@ export async function POST(request: NextRequest) {
               data: {
                 contentId,
                 platformAccountId: accountId,
-                platformContentId: platformContentIdStr,
-                publishedUrl: result.publishedUrl ?? undefined,
+                platformContentId: cpId,
+                publishedUrl: pubUrl,
+                ...(platform === Platform.WEIBO && weiboTimelineMid
+                  ? { weiboTimelineMid }
+                  : {}),
+                platformPublishedAt: new Date(),
                 publishStatus: 'SUCCESS',
               },
             })

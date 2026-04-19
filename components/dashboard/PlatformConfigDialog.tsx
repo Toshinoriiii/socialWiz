@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 /**
  * 平台配置弹窗组件
@@ -18,7 +18,11 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Platform } from '@/types/platform.types'
-import { WechatConfigFields, WeiboConfigFields } from './platform-config-fields'
+import {
+  WechatConfigFields,
+  WeiboConfigFields,
+  ZhihuConfigFields
+} from './platform-config-fields'
 import { PlatformBrandLogo } from '@/components/dashboard/PlatformBrandLogo'
 import { cn } from '@/lib/utils'
 import { CreateConfigInputSchema } from '@/lib/validators/platform-config.validator'
@@ -45,6 +49,29 @@ function defaultWeiboConfigData () {
     imageTextVisibility: 'public' as const,
     imageTextContentDeclaration: '0' as const
   }
+}
+
+function defaultZhihuConfigData () {
+  return {
+    type: 'zhihu' as const,
+    articleCommentPermission: 'anyone' as const,
+    articleSubmitToQuestionKeywords: '',
+    articleCreationDeclaration: 'none' as const,
+    articleTopicsLine: '',
+    zhuanlanColumnName: ''
+  }
+}
+
+function defaultConfigDataForPlatform (p: Platform) {
+  if (p === Platform.WECHAT) {
+    return {
+      type: 'wechat' as const,
+      author: '',
+      contentSourceUrl: ''
+    }
+  }
+  if (p === Platform.ZHIHU) return defaultZhihuConfigData()
+  return defaultWeiboConfigData()
 }
 
 export function PlatformConfigDialog({
@@ -87,14 +114,7 @@ export function PlatformConfigDialog({
       platform,
       configName: '',
       description: '',
-      configData:
-        platform === Platform.WECHAT
-          ? {
-              type: 'wechat' as const,
-              author: '',
-              contentSourceUrl: ''
-            }
-          : defaultWeiboConfigData()
+      configData: defaultConfigDataForPlatform(platform)
     }
   })
 
@@ -104,14 +124,7 @@ export function PlatformConfigDialog({
       platform,
       configName: '',
       description: '',
-      configData:
-        platform === Platform.WECHAT
-          ? {
-              type: 'wechat' as const,
-              author: '',
-              contentSourceUrl: ''
-            }
-          : defaultWeiboConfigData()
+      configData: defaultConfigDataForPlatform(platform)
     })
   }
 
@@ -148,7 +161,30 @@ export function PlatformConfigDialog({
             }
             return m
           })()
-        : config.configData
+        : config.platform === Platform.ZHIHU
+          ? (() => {
+              const raw = (config.configData || {}) as Record<string, unknown>
+              const m = {
+                ...defaultZhihuConfigData(),
+                ...raw
+              } as Record<string, unknown>
+              if (
+                !m.articleTopicsLine &&
+                Array.isArray(raw.topicIds) &&
+                (raw.topicIds as unknown[]).length
+              ) {
+                m.articleTopicsLine = (raw.topicIds as string[]).join('/')
+              }
+              if (!m.zhuanlanColumnName && raw.zhuanlanColumnId) {
+                m.zhuanlanColumnName = String(raw.zhuanlanColumnId)
+              }
+              delete m.topicIds
+              delete m.zhuanlanColumnId
+              delete m.pinViewPermission
+              delete m.pinCommentPermission
+              return m
+            })()
+          : config.configData
     form.reset({
       platform: config.platform,
       configName: config.configName,
@@ -466,6 +502,9 @@ export function PlatformConfigDialog({
                   )}
                   {platform === Platform.WEIBO && (
                     <WeiboConfigFields form={form} />
+                  )}
+                  {platform === Platform.ZHIHU && (
+                    <ZhihuConfigFields form={form} />
                   )}
                 </div>
               </form>

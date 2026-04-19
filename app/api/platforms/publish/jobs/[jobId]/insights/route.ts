@@ -3,6 +3,7 @@ import { verify } from 'jsonwebtoken'
 import { prisma } from '@/lib/db/prisma'
 import { Platform } from '@/types/platform.types'
 import { fetchWeiboPostInsightsForAccount } from '@/lib/platforms/weibo/weibo-post-insights'
+import { effectivePublishContentTypeFromRecord } from '@/lib/utils/content-publish-type'
 import { NonOfficialPublishService } from '@/lib/services/non-official-publish.service'
 import { PublishJobStatus } from '@prisma/client'
 
@@ -71,7 +72,21 @@ export async function GET (
     )
   }
 
-  const r = await fetchWeiboPostInsightsForAccount(account, userId, postId)
+  let contentPublishKind: 'article' | 'image-text' | undefined
+  if (job.contentId) {
+    const c = await prisma.content.findFirst({
+      where: { id: job.contentId, userId },
+      select: { contentType: true, coverImage: true, images: true }
+    })
+    if (c) {
+      const k = effectivePublishContentTypeFromRecord(c)
+      if (k === 'image-text') contentPublishKind = 'image-text'
+    }
+  }
+
+  const r = await fetchWeiboPostInsightsForAccount(account, userId, postId, {
+    contentPublishKind
+  })
   if (!r.ok) {
     return NextResponse.json({ error: r.error }, { status: 400 })
   }

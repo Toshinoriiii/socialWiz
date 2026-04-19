@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { AuthService } from '@/lib/services/auth.service'
 import { WeiboAdapter } from '@/lib/platforms/weibo/weibo-adapter'
@@ -13,6 +13,7 @@ import {
   effectiveWeiboContentTypeFromRecord,
   weiboPublishBodyTextFallback
 } from '@/lib/utils/weibo-publish-content'
+import { finalizeWeiboIdsForContentPlatform } from '@/lib/services/non-official-publish.service'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -213,6 +214,13 @@ export async function POST(
     }
 
     if (contentId) {
+      const wr = await finalizeWeiboIdsForContentPlatform(
+        user.id,
+        result.platformPostId ?? null,
+        result.publishedUrl ?? null
+      )
+      const cpId = wr.platformPostId ?? result.platformPostId
+      const pubUrl = wr.publishedUrl ?? result.publishedUrl
       const existing = await prisma.contentPlatform.findFirst({
         where: {
           contentId,
@@ -223,8 +231,10 @@ export async function POST(
         await prisma.contentPlatform.update({
           where: { id: existing.id },
           data: {
-            platformContentId: result.platformPostId,
-            publishedUrl: result.publishedUrl,
+            platformContentId: cpId,
+            publishedUrl: pubUrl,
+            ...(wr.weiboTimelineMid ? { weiboTimelineMid: wr.weiboTimelineMid } : {}),
+            platformPublishedAt: new Date(),
             publishStatus: 'SUCCESS'
           }
         })
@@ -233,8 +243,10 @@ export async function POST(
           data: {
             contentId,
             platformAccountId,
-            platformContentId: result.platformPostId,
-            publishedUrl: result.publishedUrl,
+            platformContentId: cpId,
+            publishedUrl: pubUrl,
+            ...(wr.weiboTimelineMid ? { weiboTimelineMid: wr.weiboTimelineMid } : {}),
+            platformPublishedAt: new Date(),
             publishStatus: 'SUCCESS'
           }
         })

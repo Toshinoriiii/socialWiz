@@ -1,4 +1,4 @@
-﻿import { readWeiboPlaywrightProfile } from '@/lib/weibo-playwright/session-files'
+import { readWeiboPlaywrightProfile } from '@/lib/weibo-playwright/session-files'
 import {
   loadImagePartForWeibo,
   uploadWeiboImagesAsPicIdString,
@@ -15,6 +15,7 @@ import {
   xsrfTokenFromCookies
 } from '@/lib/weibo-playwright/weibo-xsrf'
 import { resolveMblogMetaFromProfileTimeline } from '@/lib/weibo-playwright/weibo-mblog-meta-resolve'
+import { isWeiboArticleNumericObjectId } from '@/lib/weibo-playwright/weibo-status-cookie'
 import {
   tryPublishWeiboHeadlineArticle,
   type WeiboHeadlinePublishInput
@@ -108,20 +109,18 @@ function extractPostMeta (
   return { platformPostId: idstr, publishedUrl }
 }
 
-/** 接口 JSON 结构多变时的兜底：从原始字符串里抠 idstr/mid */
+/** 接口 JSON 结构多变时的兜底：从原始字符串里抠 idstr/mid（不用 object_id，避免误作时间线 mid） */
 function metaFromRawResponseText (
   raw: string,
   fallbackWeiboUid: string
 ): { platformPostId: string; publishedUrl: string } | null {
-  const patterns = [
+  for (const p of [
     /"idstr"\s*:\s*"?(\d{8,})"?/,
-    /"mid"\s*:\s*"?(\d{8,})"?/,
-    /"object_id"\s*:\s*"?(\d{8,})"?/
-  ]
-  for (const p of patterns) {
+    /"mid"\s*:\s*"?(\d{8,})"?/
+  ]) {
     const m = raw.match(p)
-    if (m) {
-      const idstr = m[1]
+    if (m?.[1] && !isWeiboArticleNumericObjectId(m[1].replace(/\D/g, ''))) {
+      const idstr = m[1].replace(/\D/g, '')
       const uid = fallbackWeiboUid.replace(/\D/g, '')
       const publishedUrl = uid
         ? `https://weibo.com/${uid}/${idstr}`

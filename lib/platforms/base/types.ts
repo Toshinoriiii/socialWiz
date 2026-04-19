@@ -54,6 +54,8 @@ export interface PublishResult {
   success: boolean
   platformPostId?: string
   publishedUrl?: string
+  /** 微信 datacube 用 msgid（msg_data_id_序号），便于 getarticleread 精确匹配 */
+  wechatDatacubeMsgid?: string
   error?: string
   errorCode?: string
 }

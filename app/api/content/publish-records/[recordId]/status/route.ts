@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 查询发布状态（按作品聚合）
  * GET /api/content/publish-records/[recordId]/status
  *
@@ -14,6 +14,7 @@ import { prisma } from '@/lib/db/prisma'
 const PLATFORM_NAMES: Record<string, string> = {
   WECHAT: '微信公众号',
   WEIBO: '微博',
+  ZHIHU: '知乎',
   DOUYIN: '抖音',
   XIAOHONGSHU: '小红书',
 }

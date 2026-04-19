@@ -1,8 +1,9 @@
-﻿import type { ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 export enum Platform {
   WECHAT = 'WECHAT',
   WEIBO = 'WEIBO',
+  ZHIHU = 'ZHIHU',
   DOUYIN = 'DOUYIN',
   XIAOHONGSHU = 'XIAOHONGSHU'
 }

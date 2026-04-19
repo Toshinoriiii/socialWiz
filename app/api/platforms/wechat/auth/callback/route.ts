@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
       }, '*')
       window.close()
     } else {
-      window.location.href = '/dashboard/test-wechat?platform=wechat&status=error&error=${encodeURIComponent(errorMsg)}'
+      window.location.href = '/accounts?platform=wechat&status=error&error=${encodeURIComponent(errorMsg)}'
     }
   </script>
   <p>授权失败：${errorMsg}</p>
@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
     // 重定向到测试页面，并添加成功标识
     // 如果是从新窗口打开的授权，这个重定向会在新窗口中完成
     // 前端可以通过检测URL参数来关闭窗口并刷新父页面
-    const redirectUrl = new URL('/dashboard/test-wechat?platform=wechat&status=connected', request.url)
+    const redirectUrl = new URL('/accounts?platform=wechat&status=connected', request.url)
     
     // 返回一个包含关闭窗口脚本的HTML页面
     return new NextResponse(
@@ -204,7 +204,7 @@ export async function GET(request: NextRequest) {
       }, '*')
       window.close()
     } else {
-      window.location.href = '/dashboard/test-wechat?platform=wechat&status=error&error=${encodeURIComponent(errorMsg)}'
+      window.location.href = '/accounts?platform=wechat&status=error&error=${encodeURIComponent(errorMsg)}'
     }
   </script>
   <p>授权失败：${errorMsg}</p>

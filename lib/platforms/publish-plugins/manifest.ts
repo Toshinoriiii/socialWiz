@@ -1,4 +1,4 @@
-﻿import { Platform } from '@/types/platform.types'
+import { Platform } from '@/types/platform.types'
 import type { UploaderManifestEntry } from '@/lib/platforms/publish-plugins/types'
 
 export const UPLOADER_MANIFEST: Partial<Record<Platform, UploaderManifestEntry>> = {
@@ -8,5 +8,12 @@ export const UPLOADER_MANIFEST: Partial<Record<Platform, UploaderManifestEntry>>
     contentKinds: ['text', 'image'],
     supportsHeadless: false,
     pluginId: 'weibo-playwright'
+  },
+  [Platform.ZHIHU]: {
+    platform: Platform.ZHIHU,
+    saveSessionRelativeDir: 'scripts/zhihu-playwright/sessions',
+    contentKinds: ['text', 'image'],
+    supportsHeadless: false,
+    pluginId: 'zhihu-playwright'
   }
 }

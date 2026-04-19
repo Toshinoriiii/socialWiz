@@ -44,7 +44,7 @@ async function main() {
     console.log('✓ 创建测试用户:', user.email)
 
     // 3. 创建平台账号
-    const platforms: Platform[] = ['WECHAT', 'WEIBO', 'DOUYIN', 'XIAOHONGSHU']
+    const platforms: Platform[] = ['WECHAT', 'WEIBO', 'ZHIHU', 'DOUYIN', 'XIAOHONGSHU']
     
     for (const platform of platforms) {
       const account = await prisma.platformAccount.upsert({

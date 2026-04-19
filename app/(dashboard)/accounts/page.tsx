@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
 import { Link as LinkIcon, Unlink, Plus, AlertCircle, CheckCircle, Inbox } from 'lucide-react'
@@ -27,6 +27,8 @@ interface PlatformAccount {
   isConnected: boolean
   tokenExpiry?: string
   needsReauth?: boolean
+  /** 浏览器会话型：后台用 Cookie 探测；false 表示登录已失效 */
+  playwrightSessionAlive?: boolean | null
   createdAt: string
   // 微信特有字段
   appId?: string
@@ -54,6 +56,12 @@ const platformConfig: Array<{
     authPath: '/api/platforms/weibo/auth'
   },
   {
+    id: 'ZHIHU',
+    platform: Platform.ZHIHU,
+    name: '知乎',
+    authPath: null
+  },
+  {
     id: 'DOUYIN',
     platform: Platform.DOUYIN,
     name: '抖音',
@@ -79,12 +87,16 @@ export default function AccountsPage() {
 
   const [weiboBindOpen, setWeiboBindOpen] = useState(false)
   const [wechatBindOpen, setWechatBindOpen] = useState(false)
+  const [zhihuBindOpen, setZhihuBindOpen] = useState(false)
   const [weiboPlaywrightPolling, setWeiboPlaywrightPolling] = useState(false)
   const [wechatPlaywrightPolling, setWechatPlaywrightPolling] = useState(false)
+  const [zhihuPlaywrightPolling, setZhihuPlaywrightPolling] = useState(false)
   const weiboSawInProgressRef = useRef(false)
   const weiboBindStartedAtRef = useRef(0)
   const wechatSawInProgressRef = useRef(false)
   const wechatBindStartedAtRef = useRef(0)
+  const zhihuSawInProgressRef = useRef(false)
+  const zhihuBindStartedAtRef = useRef(0)
 
   const loadAccounts = async () => {
     if (!token) return
@@ -325,6 +337,92 @@ export default function AccountsPage() {
     return () => window.clearInterval(id)
   }, [wechatPlaywrightPolling, token])
 
+  const startZhihuPlaywrightBind = async () => {
+    if (!token) {
+      toast.error('未登录')
+      return
+    }
+    try {
+      setConnecting('ZHIHU')
+      const r = await fetch('/api/platforms/zhihu/playwright-bind', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await r.json()
+      if (!r.ok) {
+        const extra = [data.detail, data.hint].filter(Boolean).join('\n')
+        toast.error(
+          extra ? `${data.error || '启动失败'}\n${extra}` : data.error || '启动失败'
+        )
+        return
+      }
+      if (data.started === false) {
+        toast.warning(
+          data.message ||
+            '检测到已有进行中的绑定；若实际上没有登录窗口，请到 scripts/zhihu-playwright/sessions 删除对应 .binding.lock 后重试。'
+        )
+        return
+      }
+      toast.message(data.message || '请在弹出的浏览器中登录知乎')
+      zhihuBindStartedAtRef.current = Date.now()
+      zhihuSawInProgressRef.current = false
+      setZhihuPlaywrightPolling(true)
+    } catch (error) {
+      console.error(error)
+      toast.error('网络错误,请重试')
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!zhihuPlaywrightPolling || !token) return
+
+    const finishCancelled = () => {
+      zhihuSawInProgressRef.current = false
+      setZhihuPlaywrightPolling(false)
+      setZhihuBindOpen(false)
+      toast.message('登录窗口已关闭，绑定已取消')
+    }
+
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/platforms/zhihu/playwright-bind', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const data = await r.json()
+        if (!r.ok) return
+
+        if (data.bound) {
+          zhihuSawInProgressRef.current = false
+          toast.success('知乎绑定成功')
+          setZhihuPlaywrightPolling(false)
+          setZhihuBindOpen(false)
+          void loadAccounts()
+          return
+        }
+
+        if (data.inProgress) {
+          zhihuSawInProgressRef.current = true
+          return
+        }
+
+        const elapsed = Date.now() - zhihuBindStartedAtRef.current
+        const definitelyEnded =
+          zhihuSawInProgressRef.current || elapsed > 5000
+        if (definitelyEnded) {
+          finishCancelled()
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    void tick()
+    const id = window.setInterval(() => void tick(), 2000)
+    return () => window.clearInterval(id)
+  }, [zhihuPlaywrightPolling, token])
+
   // 连接平台账号
   const handleConnect = async (platformId: string) => {
     const platform = platformConfig.find(p => p.id === platformId)
@@ -338,6 +436,12 @@ export default function AccountsPage() {
 
     if (platformId === 'WEIBO') {
       startWeiboBind()
+      return
+    }
+
+    if (platformId === 'ZHIHU') {
+      setZhihuBindOpen(true)
+      void startZhihuPlaywrightBind()
       return
     }
 
@@ -394,6 +498,8 @@ export default function AccountsPage() {
         apiPath = `/api/platforms/wechat/${accountId}/disconnect`
       } else if (platform === 'WEIBO') {
         apiPath = `/api/platforms/weibo/${accountId}/disconnect`
+      } else if (platform === 'ZHIHU') {
+        apiPath = `/api/platforms/zhihu/${accountId}/disconnect`
       } else {
         apiPath = `/api/platforms/${accountId}/disconnect`
       }
@@ -496,6 +602,7 @@ export default function AccountsPage() {
                 if (!platform) return null
                 
                 const needsReauth = account.needsReauth || false
+                const browserLoginExpired = account.playwrightSessionAlive === false
 
                 return (
                   <Card key={account.id} className="border-2 border-gray-200 hover:border-gray-300 transition-all duration-150">
@@ -511,7 +618,7 @@ export default function AccountsPage() {
                           needsReauth ? (
                             <Badge variant="outline" className="text-xs border-yellow-300 text-yellow-700 bg-yellow-50">
                               <AlertCircle className="size-3 mr-1" />
-                              需要重新授权
+                              {browserLoginExpired ? '需重新登录' : '需要重新授权'}
                             </Badge>
                           ) : (
                             <Badge variant="outline" className="text-xs border-green-300 text-green-700 bg-green-50">
@@ -521,6 +628,12 @@ export default function AccountsPage() {
                           )
                         )}
                       </div>
+
+                      {browserLoginExpired && (
+                        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4">
+                          该平台在本机保存的浏览器登录已失效，请重新连接并完成登录。
+                        </p>
+                      )}
 
                       {/* 平台名称 */}
                       <div className="font-semibold text-black mb-2">{platform.name}</div>
@@ -571,7 +684,11 @@ export default function AccountsPage() {
                             className="flex-1 border-yellow-300 text-yellow-700 hover:bg-yellow-50 transition-all duration-150"
                           >
                             <LinkIcon className="size-4 mr-1" />
-                            {connecting === platform.id ? '连接中...' : '重新授权'}
+                            {connecting === platform.id
+                              ? '连接中...'
+                              : browserLoginExpired
+                                ? '重新连接'
+                                : '重新授权'}
                           </Button>
                         )}
                         <Button
@@ -599,7 +716,7 @@ export default function AccountsPage() {
       <Alert className="border-blue-200 bg-blue-50">
         <AlertCircle className="size-4 text-blue-600" />
         <AlertDescription className="text-blue-800 text-sm">
-          <strong>提示：</strong>每个平台仅一个绑定。微博与微信公众号均支持<strong>本机浏览器登录</strong>（微博另可选开放平台 OAuth）。微信需在弹出窗口登录 <strong>mp.weixin.qq.com</strong>；发文走网页端接口复现（非开放平台）。
+          每个平台支持绑定一个账号，绑定账号后请在平台管理中添加相关发布配置。
         </AlertDescription>
       </Alert>
 
@@ -615,10 +732,12 @@ export default function AccountsPage() {
           <div className="grid gap-3 py-4">
             {platformConfig.map((platform) => {
               const isWeibo = platform.id === 'WEIBO'
+              const isZhihu = platform.id === 'ZHIHU'
               const bound = hasBoundPlatform(platform.id)
               const comingSoon =
                 platform.id !== 'WECHAT' &&
                 platform.id !== 'WEIBO' &&
+                platform.id !== 'ZHIHU' &&
                 !platform.authPath
               const rowDisabled =
                 connecting === platform.id || comingSoon || bound
@@ -633,6 +752,12 @@ export default function AccountsPage() {
                       setPlatformSelectOpen(false)
                       setWeiboBindOpen(true)
                       void startWeiboPlaywrightBind()
+                      return
+                    }
+                    if (isZhihu) {
+                      setPlatformSelectOpen(false)
+                      setZhihuBindOpen(true)
+                      void startZhihuPlaywrightBind()
                       return
                     }
                     if (platform.id === 'WECHAT') {
@@ -662,7 +787,9 @@ export default function AccountsPage() {
                         ? '已通过账号管理绑定，请先解绑再换绑'
                         : isWeibo
                           ? '本机浏览器登录（主路径）'
-                          : platform.id === 'WECHAT'
+                          : isZhihu
+                            ? '本机浏览器登录（主路径）'
+                            : platform.id === 'WECHAT'
                             ? '本机浏览器登录公众平台（主路径）'
                             : platform.authPath
                               ? '点击连接'
@@ -723,6 +850,46 @@ export default function AccountsPage() {
                 使用微博开放平台授权（高级）
               </Button>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={zhihuBindOpen}
+        onOpenChange={(open) => {
+          setZhihuBindOpen(open)
+          if (!open) {
+            zhihuSawInProgressRef.current = false
+            setZhihuPlaywrightPolling(false)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px] bg-white border border-gray-300">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <PlatformBrandLogo
+                platform={Platform.ZHIHU}
+                size={36}
+                tileClassName="bg-neutral-100 dark:bg-neutral-800"
+              />
+              <DialogTitle className="text-black">绑定知乎账号</DialogTitle>
+            </div>
+            <DialogDescription className="text-gray-600">
+              请在随后弹出的窗口中登录 <strong>www.zhihu.com</strong>。绑定后发布专栏文章将走 zhuanlan 写作接口（需 Cookie：<code className="text-xs">z_c0</code>、<code className="text-xs">_xsrf</code> 等）。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <Button
+              className="w-full bg-blue-600 text-white hover:bg-blue-700"
+              onClick={() => void startZhihuPlaywrightBind()}
+              disabled={connecting === 'ZHIHU' || zhihuPlaywrightPolling}
+            >
+              {zhihuPlaywrightPolling
+                ? '等待登录中…'
+                : connecting === 'ZHIHU'
+                  ? '启动中…'
+                  : '连接知乎（本机浏览器）'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

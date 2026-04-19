@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 平台发布配置验证器
  * Feature: 006-platform-publish-config
  * 
@@ -47,6 +47,39 @@ const weiboMblogStatement = z.enum(['0', '1', '2', '3'])
 /**
  * 微博配置数据验证
  */
+const zhihuCreationDeclaration = z.enum([
+  'none',
+  'medical',
+  'fictional',
+  'ai_generated',
+  'investment',
+  'commercial'
+])
+
+export const ZhihuConfigDataSchema = z.object({
+  type: z.literal('zhihu'),
+  articleCommentPermission: z
+    .enum(['anyone', 'nobody'])
+    .optional()
+    .default('anyone'),
+  articleSubmitToQuestionKeywords: z
+    .string()
+    .max(200, '问题关键词过长')
+    .optional()
+    .or(z.literal('')),
+  articleCreationDeclaration: zhihuCreationDeclaration.optional().default('none'),
+  articleTopicsLine: z
+    .string()
+    .max(500, '话题过长')
+    .optional()
+    .or(z.literal('')),
+  zhuanlanColumnName: z
+    .string()
+    .max(120, '专栏名称过长')
+    .optional()
+    .or(z.literal(''))
+})
+
 export const WeiboConfigDataSchema = z.object({
   type: z.literal('weibo'),
   articleColumnName: z
@@ -101,6 +134,7 @@ export const XiaohongshuConfigDataSchema = z.object({
 export const PlatformConfigDataSchema = z.discriminatedUnion('type', [
   WechatConfigDataSchema,
   WeiboConfigDataSchema,
+  ZhihuConfigDataSchema,
   DouyinConfigDataSchema,
   XiaohongshuConfigDataSchema
 ])
@@ -146,6 +180,7 @@ export function validateConfigData(
   const typeMap: Record<Platform, string> = {
     [Platform.WECHAT]: 'wechat',
     [Platform.WEIBO]: 'weibo',
+    [Platform.ZHIHU]: 'zhihu',
     [Platform.DOUYIN]: 'douyin',
     [Platform.XIAOHONGSHU]: 'xiaohongshu'
   }

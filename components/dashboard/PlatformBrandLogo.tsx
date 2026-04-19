@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 const LOGO_SRC: Partial<Record<Platform, string>> = {
   [Platform.WECHAT]: '/platforms/wechat.svg',
   [Platform.WEIBO]: '/platforms/sinaweibo.svg',
+  [Platform.ZHIHU]: '/platforms/zhihu.svg',
   [Platform.DOUYIN]: '/platforms/douyin.svg',
   [Platform.XIAOHONGSHU]: '/platforms/xiaohongshu.svg'
 }
@@ -14,6 +15,7 @@ const LOGO_SRC: Partial<Record<Platform, string>> = {
 const ALT: Partial<Record<Platform, string>> = {
   [Platform.WECHAT]: '微信',
   [Platform.WEIBO]: '微博',
+  [Platform.ZHIHU]: '知乎',
   [Platform.DOUYIN]: '抖音',
   [Platform.XIAOHONGSHU]: '小红书'
 }

@@ -3,6 +3,7 @@ import {
   WechatOutlined,
   WeiboOutlined
 } from '@ant-design/icons'
+import { PlatformZhihuIcon } from '@/components/icons/PlatformZhihuIcon'
 
 export interface PlatformInfo {
   id: Platform
@@ -57,6 +58,23 @@ export const PLATFORM_CONFIGS: Record<Platform, PlatformInfo> = {
       authUrl: 'https://api.weibo.com/oauth2/authorize',
       tokenUrl: 'https://api.weibo.com/oauth2/access_token',
       scope: 'all'
+    }
+  },
+  [Platform.ZHIHU]: {
+    id: Platform.ZHIHU,
+    name: '知乎',
+    color: 'bg-blue-600',
+    icon: PlatformZhihuIcon,
+    limits: {
+      maxTextLength: 200000,
+      maxImages: 9,
+      supportsVideo: false,
+      supportsRichText: true
+    },
+    oauth: {
+      authUrl: 'https://www.zhihu.com/signin',
+      tokenUrl: '',
+      scope: ''
     }
   },
   [Platform.DOUYIN]: {

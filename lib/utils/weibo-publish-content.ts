@@ -1,5 +1,5 @@
 ﻿/**
- * 微博浏览器发博：与发布页 draftEffectivePublishContentType 对齐，并处理无 contentType 的旧数据，
+ * 微博浏览器发博：与 `effectivePublishContentTypeFromRecord` 不同的推断（多图/封面规则），专用于微博体裁，
  * 避免多图作品误走头条文章（card v5）导致「图文发不出去」。
  */
 

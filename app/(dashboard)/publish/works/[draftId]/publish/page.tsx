@@ -41,6 +41,7 @@ import {
   Platform,
   isWechatPlaywrightPlatformUserId
 } from '@/types/platform.types'
+import { effectivePublishContentTypeFromRecord } from '@/lib/utils/content-publish-type'
 
 interface PlatformAccount {
   id: string
@@ -74,16 +75,6 @@ interface Draft {
   publishedAt?: string | null
 }
 
-/** 与作品列表一致：无 contentType 时按封面/配图推断，避免错误排除微信公众号 */
-function draftEffectivePublishContentType (draft: Draft): 'article' | 'image-text' {
-  if (draft.contentType === 'image-text') return 'image-text'
-  if (draft.contentType === 'article') return 'article'
-  const hasImages = draft.images && draft.images.length > 0
-  const hasCoverImage = draft.coverImage && String(draft.coverImage).trim().length > 0
-  if (hasImages && !hasCoverImage) return 'image-text'
-  return 'article'
-}
-
 const STEPS = [
   { id: 1, key: 'accounts', label: '选择平台账号', desc: '选择要发布的平台账号', icon: User },
   { id: 2, key: 'config', label: '选择平台配置', desc: '为各平台选择发布配置', icon: Settings },
@@ -94,6 +85,7 @@ const STEPS = [
 const PLATFORM_INFO: Record<string, { name: string }> = {
   WECHAT: { name: '微信公众号' },
   WEIBO: { name: '微博' },
+  ZHIHU: { name: '知乎' },
   DOUYIN: { name: '抖音' },
   XIAOHONGSHU: { name: '小红书' },
 }
@@ -120,9 +112,10 @@ function AccountPlatformLogo ({ platformKey }: { platformKey: string }) {
   )
 }
 
-/** 同批多平台时结果列表顺序：微博在前、微信在后；各平台发布请求并行发出，互不争抢同一顺序 */
+/** 同批多平台时结果列表顺序：微博在前、知乎、微信；知乎在并行批次中最后执行，避免与微信/微博同并发时图床长期停在 init */
 function orderAccountsForBatchPublish<T extends { platform: string }> (accounts: T[]): T[] {
-  const rank = (p: string) => (p === 'WEIBO' ? 0 : p === 'WECHAT' ? 1 : 2)
+  const rank = (p: string) =>
+    p === 'WEIBO' ? 0 : p === 'ZHIHU' ? 1 : p === 'WECHAT' ? 2 : 3
   return [...accounts].sort((a, b) => rank(a.platform) - rank(b.platform))
 }
 
@@ -157,6 +150,8 @@ async function pollPublishJob(
 const PLATFORM_CONTENT_SUPPORT: Record<string, ('article' | 'image-text')[]> = {
   WECHAT: ['article'],
   WEIBO: ['article', 'image-text'],
+  /** 知乎专栏文章；图文请走微博等 */
+  ZHIHU: ['article'],
   DOUYIN: ['article', 'image-text'],
   XIAOHONGSHU: ['article', 'image-text'],
 }
@@ -197,7 +192,7 @@ export default function PublishFlowPage() {
   // 草稿加载后清除不支持的平台选择（如图文草稿时清掉微信）
   useEffect(() => {
     if (!draft || selectedAccountIds.size === 0) return
-    const ct = draftEffectivePublishContentType(draft)
+    const ct = effectivePublishContentTypeFromRecord(draft)
     const invalidIds = Array.from(selectedAccountIds).filter(id => {
       const acc = accounts.find(a => a.id === id)
       return acc && !(PLATFORM_CONTENT_SUPPORT[acc.platform]?.includes(ct))
@@ -317,7 +312,7 @@ export default function PublishFlowPage() {
   }
 
   const effectiveContentType = draft
-    ? draftEffectivePublishContentType(draft)
+    ? effectivePublishContentTypeFromRecord(draft)
     : 'article'
 
   const filteredAccounts = accounts.filter(acc => {
@@ -365,8 +360,9 @@ export default function PublishFlowPage() {
 
     type PublishResultRow = { accountId: string; success: boolean; message?: string }
 
-    const results: PublishResultRow[] = await Promise.all(
-      batchAccounts.map(async (acc): Promise<PublishResultRow> => {
+    const publishOneAccount = async (
+      acc: (typeof batchAccounts)[number]
+    ): Promise<PublishResultRow> => {
         const publishConfigId = accountConfigMap[acc.id]
 
         try {
@@ -470,6 +466,52 @@ export default function PublishFlowPage() {
             }
           }
 
+          if (acc.platform === 'ZHIHU') {
+            const coverUrl = draft.coverImage || draft.images?.[0]
+            let imageFile: File | null = null
+            if (coverUrl) {
+              try {
+                const imgRes = await fetch(coverUrl)
+                const blob = await imgRes.blob()
+                const mime = blob.type || 'image/jpeg'
+                imageFile = new File([blob], 'cover.jpg', { type: mime })
+              } catch {
+                /* 无封面则仅发正文 */
+              }
+            }
+            const formData = new FormData()
+            formData.append('contentId', draft.id)
+            formData.append('platform', 'ZHIHU')
+            formData.append('accountId', acc.id)
+            if (publishConfigId) formData.append('publishConfigId', publishConfigId)
+            formData.append('title', draft.title)
+            formData.append('content', draft.content)
+            formData.append('deferContentPublishedUpdate', '1')
+            if (imageFile) formData.append('image', imageFile)
+
+            const res = await fetch('/api/platforms/publish', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            })
+            const data = await res.json().catch(() => ({}))
+            if (res.ok && data.success && data.requiresJobPolling && data.jobId && token) {
+              const polled = await pollPublishJob(token, data.jobId)
+              return {
+                accountId: acc.id,
+                success: polled.ok,
+                message: polled.ok
+                  ? (data.message || '知乎文章已发布')
+                  : (polled.errorMessage || data.details || data.error || '发布失败'),
+              }
+            }
+            return {
+              accountId: acc.id,
+              success: res.ok && data.success,
+              message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+            }
+          }
+
           return { accountId: acc.id, success: false, message: '暂不支持该平台发布' }
         } catch (e) {
           return {
@@ -478,8 +520,20 @@ export default function PublishFlowPage() {
             message: e instanceof Error ? e.message : '发布过程出错',
           }
         }
-      })
-    )
+    }
+
+    const nonZhihu = batchAccounts.filter((a) => a.platform !== 'ZHIHU')
+    const zhihuAccounts = batchAccounts.filter((a) => a.platform === 'ZHIHU')
+    const mergedByAccountId = new Map<string, PublishResultRow>()
+    if (nonZhihu.length > 0) {
+      const part = await Promise.all(nonZhihu.map(publishOneAccount))
+      part.forEach((r) => mergedByAccountId.set(r.accountId, r))
+    }
+    if (zhihuAccounts.length > 0) {
+      const part = await Promise.all(zhihuAccounts.map(publishOneAccount))
+      part.forEach((r) => mergedByAccountId.set(r.accountId, r))
+    }
+    const results = batchAccounts.map((acc) => mergedByAccountId.get(acc.id)!)
 
     const allSuccess = results.length > 0 && results.every((r) => r.success)
     if (allSuccess) {
@@ -998,7 +1052,8 @@ export default function PublishFlowPage() {
         ) : (
           <Button variant="outline" onClick={handleBack}>取消</Button>
         )}
-        {currentStep < 4 && (
+        {/* 步骤 3 为「发布中」全屏态，不再显示主操作按钮（避免出现「下一步」） */}
+        {currentStep < 4 && currentStep !== 3 && (
           <Button
             variant="default"
             onClick={handleNext}

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 发布记录 API
  * GET /api/content/publish-records - 按作品（草稿）聚合：一篇内容一条记录，内含各成功发布平台与链接（按最近发布时间倒序）
  */
@@ -10,6 +10,7 @@ import { prisma } from '@/lib/db/prisma'
 const PLATFORM_NAMES: Record<string, string> = {
   WECHAT: '微信公众号',
   WEIBO: '微博',
+  ZHIHU: '知乎',
   DOUYIN: '抖音',
   XIAOHONGSHU: '小红书',
 }
@@ -130,6 +131,8 @@ export async function GET(request: NextRequest) {
           accountName,
           publishedUrl: r.publishedUrl,
           platformContentId: r.platformContentId,
+          weiboTimelineMid: r.weiboTimelineMid,
+          platformPublishedAt: r.platformPublishedAt?.toISOString() ?? null,
           publishStatus: r.publishStatus,
           createdAt: r.createdAt.toISOString(),
         }

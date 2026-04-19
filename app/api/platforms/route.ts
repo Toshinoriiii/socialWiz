@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { AuthService } from '@/lib/services/auth.service'
 import { Platform } from '@/types/platform.types'
@@ -14,6 +14,12 @@ import {
   isPlaywrightWeChatUserId
 } from '@/lib/wechat-playwright/session-files'
 import { syncWechatPlaywrightPlatformAccount } from '@/lib/wechat-playwright/sync-playwright-account'
+import {
+  zhihuPlaywrightSessionExists,
+  isPlaywrightZhihuUserId
+} from '@/lib/zhihu-playwright/session-files'
+import { syncZhihuPlaywrightPlatformAccount } from '@/lib/zhihu-playwright/sync-playwright-account'
+import { probePlaywrightPlatformsSessionAlive } from '@/lib/platforms/playwright-session-health'
 
 /**
  * GET /api/platforms
@@ -44,6 +50,14 @@ export async function GET(request: NextRequest) {
     if (wechatPlaywrightSessionExists(user.id)) {
       try {
         await syncWechatPlaywrightPlatformAccount(user.id)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (zhihuPlaywrightSessionExists(user.id)) {
+      try {
+        await syncZhihuPlaywrightPlatformAccount(user.id)
       } catch {
         /* ignore */
       }
@@ -85,6 +99,31 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    const probeWeibo =
+      weiboPlaywrightSessionExists(user.id) &&
+      platformAccounts.some(
+        (a) =>
+          a.platform === Platform.WEIBO && isPlaywrightWeiboUserId(a.platformUserId)
+      )
+    const probeWechat =
+      wechatPlaywrightSessionExists(user.id) &&
+      platformAccounts.some(
+        (a) =>
+          a.platform === Platform.WECHAT && isPlaywrightWeChatUserId(a.platformUserId)
+      )
+    const probeZhihu =
+      zhihuPlaywrightSessionExists(user.id) &&
+      platformAccounts.some(
+        (a) =>
+          a.platform === Platform.ZHIHU && isPlaywrightZhihuUserId(a.platformUserId)
+      )
+
+    const sessionAlive = await probePlaywrightPlatformsSessionAlive(user.id, {
+      weibo: probeWeibo,
+      wechat: probeWechat,
+      zhihu: probeZhihu
+    })
+
     const enriched = platformAccounts.map((a) => {
       const isPlaywrightWeibo =
         a.platform === Platform.WEIBO && isPlaywrightWeiboUserId(a.platformUserId)
@@ -94,11 +133,19 @@ export async function GET(request: NextRequest) {
         a.platform === Platform.WECHAT && isPlaywrightWeChatUserId(a.platformUserId)
       const sessionMissingWechat =
         isPlaywrightWechat && !wechatPlaywrightSessionExists(user.id)
+      const isPlaywrightZhihu =
+        a.platform === Platform.ZHIHU && isPlaywrightZhihuUserId(a.platformUserId)
+      const sessionMissingZhihu =
+        isPlaywrightZhihu && !zhihuPlaywrightSessionExists(user.id)
 
       let needsReauth: boolean
       if (a.platform === Platform.WEIBO) {
         needsReauth = isPlaywrightWeibo
           ? sessionMissingWeibo || !a.isConnected
+          : !a.isConnected || isTokenExpired(a.tokenExpiry ?? undefined)
+      } else if (a.platform === Platform.ZHIHU) {
+        needsReauth = isPlaywrightZhihu
+          ? sessionMissingZhihu || !a.isConnected
           : !a.isConnected || isTokenExpired(a.tokenExpiry ?? undefined)
       } else if (a.platform === Platform.WECHAT) {
         if (isPlaywrightWechat) {
@@ -117,12 +164,25 @@ export async function GET(request: NextRequest) {
           !a.isConnected || isTokenExpired(a.tokenExpiry ?? undefined)
       }
 
+      let playwrightSessionAlive: boolean | null = null
+      if (isPlaywrightWeibo && !sessionMissingWeibo) {
+        playwrightSessionAlive = sessionAlive.weibo
+      } else if (isPlaywrightWechat && !sessionMissingWechat) {
+        playwrightSessionAlive = sessionAlive.wechat
+      } else if (isPlaywrightZhihu && !sessionMissingZhihu) {
+        playwrightSessionAlive = sessionAlive.zhihu
+      }
+      if (playwrightSessionAlive === false) {
+        needsReauth = true
+      }
+
       const { wechatAccountConfig, ...rest } = a
 
       let canPublish: boolean | undefined
       if (a.platform === Platform.WECHAT) {
         if (isPlaywrightWechat) {
-          canPublish = !sessionMissingWechat
+          canPublish =
+            !sessionMissingWechat && playwrightSessionAlive !== false
         } else {
           canPublish = wechatAccountConfig?.canPublish ?? undefined
         }
@@ -131,6 +191,7 @@ export async function GET(request: NextRequest) {
       return {
         ...rest,
         needsReauth,
+        playwrightSessionAlive,
         appId: wechatAccountConfig?.appId,
         accountName: wechatAccountConfig?.accountName ?? undefined,
         subjectType: wechatAccountConfig?.subjectType ?? undefined,
