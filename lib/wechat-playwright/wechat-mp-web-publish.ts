@@ -517,6 +517,33 @@ function buildAppmsgpublishListQuery (
 }
 
 /**
+ * 与在后台**直接打开发表记录**（非 XHR）一致：`f`/`ajax`/`sub_action` 不出现。
+ * 整页 HTML 中 `publish_page_noencode` 常含 `read_num`；同参的 `f=json&sub_action=list_ex` 响应里
+ * `publish_page` 串则可能被裁掉阅读数字段，故需并行数据源后再择优合并。
+ */
+function buildAppmsgpublishDocumentListQuery (
+  ctx: MpAdminContext,
+  listOpts?: { begin?: number; count?: number }
+): URLSearchParams {
+  const begin = listOpts?.begin ?? 0
+  const count = listOpts?.count ?? 10
+  const qs = new URLSearchParams({
+    sub: 'list',
+    begin: String(begin),
+    count: String(count),
+    query: '',
+    type: '101_1_102_103',
+    show_type: '',
+    free_publish_type: '1_102_103',
+    search_card: '0',
+    token: ctx.token,
+    lang: 'zh_CN'
+  })
+  if (ctx.fingerprint) qs.set('fingerprint', ctx.fingerprint)
+  return qs
+}
+
+/**
  * operate_appmsg 返回的 appMsgId 是素材/草稿 id，在发表列表里对应 publish_info.draft_msgid；
  * 正式群发 msg 的 appmsgid（如 2247483726）与草稿 id 不同，必须用 draft_msgid 对齐才能取到 link。
  */
@@ -540,13 +567,20 @@ function extractWxLinkFromAppmsgpublishResponse (
           if (pubMeta == null || typeof pubMeta !== 'object') continue
           const draft = (pubMeta as Record<string, unknown>).draft_msgid
           if (draft == null || String(draft) !== String(draftMsgId)) continue
-          const ex = inner.appmsgex
-          if (!Array.isArray(ex)) continue
+          const ex =
+            Array.isArray(inner.appmsgex) && inner.appmsgex.length > 0
+              ? inner.appmsgex
+              : Array.isArray(inner.appmsg_info) && inner.appmsg_info.length > 0
+                ? inner.appmsg_info
+                : []
           for (const row of ex) {
             if (row == null || typeof row !== 'object') continue
-            const link = (row as Record<string, unknown>).link
-            if (typeof link !== 'string') continue
-            const t = link.trim()
+            const r = row as Record<string, unknown>
+            const t =
+              (typeof r.link === 'string' && r.link.trim()) ||
+              (typeof r.content_url === 'string' && r.content_url.trim()) ||
+              ''
+            if (!t) continue
             const sub =
               extractMpArticleUrlFromText(t) ?? (isWxArticlePublicUrl(t) ? t : null)
             if (sub) return sub
@@ -716,11 +750,209 @@ function extractUrlForAppmsgId (data: unknown, appmsgid: string): string | null 
   return null
 }
 
+/**
+ * 从 `publish_page = {` 起做大括号匹配，供整页 HTML 与 XHR 两种形态共用校验。
+ * 内联对象键均为 JSON 双引号风格（与 mp 后台内嵌一致）。
+ */
+function extractBalancedJsonObjectFrom (s: string, startBrace: number): string | null {
+  if (s[startBrace] !== '{') return null
+  let depth = 0
+  let inDq = false
+  let inSq = false
+  let escD = false
+  let escS = false
+  for (let p = startBrace; p < s.length; p++) {
+    const c = s[p]
+    if (inDq) {
+      if (escD) {
+        escD = false
+        continue
+      }
+      if (c === '\\') {
+        escD = true
+        continue
+      }
+      if (c === '"') inDq = false
+      continue
+    }
+    if (inSq) {
+      if (escS) {
+        escS = false
+        continue
+      }
+      if (c === '\\') {
+        escS = true
+        continue
+      }
+      if (c === "'") inSq = false
+      continue
+    }
+    if (c === '"') {
+      inDq = true
+      continue
+    }
+    if (c === "'") {
+      inSq = true
+      continue
+    }
+    if (c === '{') {
+      depth++
+      continue
+    }
+    if (c === '}') {
+      depth--
+      if (depth === 0) return s.slice(startBrace, p + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * 与 mp 发表记录页内联一致：先读 `publish_page_noencode`（无 HTML 实体内层），再回退
+ * `publish_page`；后者内 `publish_info` 常为 `&quot;` 转义串，**不得**对整段做 &quot;→" 再 parse（会破坏字符串边界）。
+ */
+const PUBLISH_PAGE_LITERAL_PATTERNS: RegExp[] = [
+  /\bpublish_page_noencode\s*=\s*\{/i,
+  /\bpublish_page\s*=\s*\{/
+]
+
+/**
+ * 全页中可能出现多处 `publish_page` 字样，**以最后一次 `… = {` 为准**（有效数据在 body 末段
+ * `<script>`，与 [发表记录] 等页结构一致；首段 match 会抠错对象导致展平为 0）。
+ */
+function tryExtractBalancedObjectAfterLastMatch (
+  html: string,
+  re: RegExp
+): string | null {
+  const flags = re.flags.includes('g') ? re.flags : `${re.flags}g`
+  const reG = new RegExp(re.source, flags)
+  const matches = [...html.matchAll(reG)]
+  if (matches.length === 0) return null
+  const m = matches[matches.length - 1]
+  if (m.index == null) return null
+  const i = m.index + m[0].length - 1
+  return extractBalancedJsonObjectFrom(html, i)
+}
+
+/**
+ * 全页 <script> 中常为**合法对象字面量**（允许尾随逗号等），`JSON.parse` 会失败；
+ * 用与页面一致的表达式求值后再 `JSON.stringify`，与 `f=json` 返回的 JSON 等效。
+ */
+function embeddedPublishPageToJsonString (objStr: string): string | null {
+  const trim = objStr.trim()
+  try {
+    JSON.parse(trim)
+    return trim
+  } catch {
+    /* 非严格 JSON 时在受控的 mp 响应里求值 */
+  }
+  try {
+    const v = new Function('return (' + trim + ')')() as unknown
+    if (v == null || typeof v !== 'object' || Array.isArray(v)) return null
+    return JSON.stringify(v)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 文档导航打开的「发表记录」全页里，`publish_page` 出现在 `<script>` 中
+ * 形如 `publish_page = { "total_count": ... }`；与 f=json&ajax=1 的 XHR 在数据上一致，只是包装成 HTML。
+ */
+function tryParsePublishPageFromAppmsgListHtml (html: string): string | null {
+  if (html.length < 100) return null
+  for (const re of PUBLISH_PAGE_LITERAL_PATTERNS) {
+    const objStr = tryExtractBalancedObjectAfterLastMatch(html, re)
+    if (objStr == null) continue
+    const json = embeddedPublishPageToJsonString(objStr)
+    if (json != null) return json
+  }
+  return null
+}
+
+/**
+ * 粗算 `publish_page` 串/对象里所有 `read_num` 之和，用于在「XHR 顶层 JSON」与「同包内嵌整页 HTML 末段 publish_page」之间选更可信的一份。
+ * 你提供的整页里 `publish_info` 常为 `&quot;…&quot;` 嵌套，粗算前做与「浏览器解析 script 前」可比的归一，否则会低估 JSON 路、合错误判。
+ */
+function roughReadNumSumInPublishPageBlob (pp: unknown): number {
+  if (pp == null) return 0
+  const raw = typeof pp === 'string' ? pp : JSON.stringify(pp)
+  if (raw.length < 20) return 0
+  const s = raw
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+  let sum = 0
+  const re = /"read_num"\s*:\s*(\d+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(s)) != null) {
+    const n = parseInt(m[1], 10)
+    if (Number.isFinite(n)) sum += n
+  }
+  return sum
+}
+
+/**
+ * 在 XHR 顶层 JSON、同体 HTML 内联 script、整页 HTML 三份 `publish_page` 中选「read_num 合计」最大者；
+ * 合计相同则优先**整页**（通常字段最全），再内联、再 XHR 串，避免全 0 的裁剪版压过有数版本。
+ */
+function pickRichestPublishPageFromCandidates (
+  jsonPp: unknown,
+  fromInlineScript: string | null,
+  fromDocumentPage: string | null
+): unknown {
+  const items: { v: unknown; s: number; pri: number }[] = [
+    { v: jsonPp, s: roughReadNumSumInPublishPageBlob(jsonPp), pri: 2 },
+    {
+      v: fromInlineScript,
+      s: fromInlineScript
+        ? roughReadNumSumInPublishPageBlob(fromInlineScript)
+        : 0,
+      pri: 1
+    },
+    {
+      v: fromDocumentPage,
+      s: fromDocumentPage
+        ? roughReadNumSumInPublishPageBlob(fromDocumentPage)
+        : 0,
+      pri: 0
+    }
+  ]
+  const ok = items.filter((x) => {
+    if (x.v == null) return false
+    if (typeof x.v === 'string') return x.v.length > 5
+    if (typeof x.v === 'object' && !Array.isArray(x.v)) return true
+    return false
+  })
+  if (ok.length === 0) return null
+  ok.sort((a, b) => (b.s !== a.s ? b.s - a.s : a.pri - b.pri))
+  return ok[0].v
+}
+
 async function fetchAppmsgpublishListJson (
   ctx: MpAdminContext,
   referer: string,
   listOpts?: { begin?: number; count?: number }
 ): Promise<Record<string, unknown> | null> {
+  const qsDoc = buildAppmsgpublishDocumentListQuery(ctx, listOpts)
+  const urlDoc = `${MP}/cgi-bin/appmsgpublish?${qsDoc.toString()}`
+  let fromDocumentPage: string | null = null
+  try {
+    const rDoc = await fetch(urlDoc, {
+      headers: {
+        Cookie: ctx.cookieHeader,
+        'User-Agent': UA,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Referer: referer
+      }
+    })
+    const textDoc = await rDoc.text()
+    if (textDoc && textDoc.length > 400) {
+      fromDocumentPage = tryParsePublishPageFromAppmsgListHtml(textDoc)
+    }
+  } catch {
+    /* 整页拉取失败则仅依赖 XHR；常见为网络/超时 */
+  }
+
   const qs = buildAppmsgpublishListQuery(ctx, listOpts)
   const url = `${MP}/cgi-bin/appmsgpublish?${qs.toString()}`
   const r = await fetch(url, {
@@ -732,8 +964,54 @@ async function fetchAppmsgpublishListJson (
       'X-Requested-With': 'XMLHttpRequest'
     }
   })
-  const j = (await r.json().catch(() => null)) as Record<string, unknown> | null
-  return j && typeof j === 'object' ? j : null
+  const text = await r.text()
+  if (!text || text.length < 20) return null
+  const trimmed = text.trim()
+
+  /**
+   * 同一次 XHR 体里可能**同时**出现：① 顶层 JSON；② 末段 script 中 `publish_page`；
+   * 再与**整页**发表记录（无 f=json 的首屏请求）里抠出的 `publish_page` 比较，选 read_num 更全的一份。
+   */
+  /** 与后台 tpl 一致：可能只有 `publish_page_noencode = {`，未必出现 `publish_page = {` 字面子串 */
+  const hasInlinePublishPage =
+    /publish_page_noencode\s*=\s*\{/.test(text) || /publish_page\s*=\s*\{/.test(text)
+  let fromHtml: string | null = null
+  if (text.length > 400 && hasInlinePublishPage) {
+    fromHtml = tryParsePublishPageFromAppmsgListHtml(text)
+  }
+
+  /** 1）XHR 常见：`{ "publish_page": "...", "base_resp": { "ret": 0 } }` */
+  if (trimmed.startsWith('{')) {
+    try {
+      const j = JSON.parse(trimmed) as Record<string, unknown>
+      if (j && typeof j === 'object') {
+        const bestPp = pickRichestPublishPageFromCandidates(
+          j.publish_page,
+          fromHtml,
+          fromDocumentPage
+        )
+        if (bestPp != null) {
+          return { ...j, publish_page: bestPp }
+        }
+        return j
+      }
+    } catch {
+      /* 2）偶发以 HTML 或碎片返回 */
+    }
+  }
+
+  const fromHtmlFallback =
+    fromHtml == null ? tryParsePublishPageFromAppmsgListHtml(text) : null
+  const fromInline = fromHtml ?? fromHtmlFallback
+  const bestNonJson = pickRichestPublishPageFromCandidates(
+    null,
+    fromInline,
+    fromDocumentPage
+  )
+  if (bestNonJson != null) {
+    return { publish_page: bestNonJson, base_resp: { ret: 0 } }
+  }
+  return null
 }
 
 /**
@@ -750,8 +1028,10 @@ export async function fetchMpAppmsgpublishListJsonForUser (
   const j = await fetchAppmsgpublishListJson(ctx, refHome, listOpts)
   if (!j) return null
   const br = j.base_resp as { ret?: number } | undefined
+  const pp = j.publish_page
   const hasPage =
-    typeof j.publish_page === 'string' && (j.publish_page as string).length > 20
+    (typeof pp === 'string' && String(pp).length > 20) ||
+    (pp != null && typeof pp === 'object' && !Array.isArray(pp))
   if (br && br.ret != null && br.ret !== 0 && !hasPage) return null
   return j
 }

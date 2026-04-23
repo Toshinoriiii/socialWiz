@@ -15,6 +15,7 @@ import {
   xsrfTokenFromCookies
 } from '@/lib/weibo-playwright/weibo-xsrf'
 import { resolveMblogMetaFromProfileTimeline } from '@/lib/weibo-playwright/weibo-mblog-meta-resolve'
+import { normalizeWeiboMblogIdSegment } from '@/lib/weibo-playwright/weibo-profile-status-url'
 import { isWeiboArticleNumericObjectId } from '@/lib/weibo-playwright/weibo-status-cookie'
 import {
   tryPublishWeiboHeadlineArticle,
@@ -51,10 +52,9 @@ function weiboFeedVisibleParam (
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-function normalizeStatusId (v: unknown): string | null {
-  if (v == null) return null
-  const digits = String(v).replace(/\D/g, '')
-  return digits.length >= 5 ? digits : null
+/** 帖 id / mid：与 {@link normalizeWeiboMblogIdSegment} 一致，支持 Base62 末段 */
+function normalizeMblogId (v: unknown): string | null {
+  return normalizeWeiboMblogIdSegment(v)
 }
 
 function extractPostMeta (
@@ -65,7 +65,7 @@ function extractPostMeta (
   let bloggerUid: string | undefined
 
   const fromMblog = (mblog: Record<string, unknown>) => {
-    const n = normalizeStatusId(mblog.idstr ?? mblog.mid ?? mblog.id)
+    const n = normalizeMblogId(mblog.idstr ?? mblog.mid ?? mblog.id)
     if (n) idstr = n
     const u = mblog.user
     if (u && typeof u === 'object') {
@@ -85,7 +85,7 @@ function extractPostMeta (
   }
   if (data && typeof data === 'object') {
     const d = data as Record<string, unknown>
-    const top = normalizeStatusId(d.idstr ?? d.mid ?? d.id)
+    const top = normalizeMblogId(d.idstr ?? d.mid ?? d.id)
     if (top) {
       idstr = top
       const u = d.user
@@ -101,6 +101,15 @@ function extractPostMeta (
     }
   }
 
+  /**
+   * 图文 / 新版接口可能把 mblog 嵌在 data 深层或 `st` 等字段，仅扫固定 key 会拿不到 id。
+   * 在「明面」解析失败后，对整棵 JSON 做一次浅深限制的全树扫描，找含 idstr+user 的节点。
+   */
+  if (!idstr) {
+    const deep = deepPluckMblogMetaFromObject(j, fallbackWeiboUid, 0)
+    if (deep) return deep
+  }
+
   if (!idstr) return null
   const uid = (bloggerUid || fallbackWeiboUid || '').replace(/\D/g, '')
   const publishedUrl = uid
@@ -109,23 +118,131 @@ function extractPostMeta (
   return { platformPostId: idstr, publishedUrl }
 }
 
+const DEEP_Mblog_MAX = 12
+
+function deepPluckMblogMetaFromObject (
+  node: unknown,
+  fallbackWeiboUid: string,
+  depth: number
+): { platformPostId: string; publishedUrl: string } | null {
+  if (depth > DEEP_Mblog_MAX || node == null) return null
+  if (Array.isArray(node)) {
+    for (const x of node) {
+      const r = deepPluckMblogMetaFromObject(x, fallbackWeiboUid, depth + 1)
+      if (r) return r
+    }
+    return null
+  }
+  if (typeof node !== 'object') return null
+  const o = node as Record<string, unknown>
+  const mid = normalizeMblogId(o.idstr ?? o.mid ?? o.id)
+  let uDigits: string | undefined
+  const u = o.user
+  if (u && typeof u === 'object') {
+    const uo = u as Record<string, unknown>
+    const uid = uo.idstr ?? uo.id
+    if (uid != null) uDigits = String(uid).replace(/\D/g, '')
+  }
+  if (mid && uDigits && /^\d{5,20}$/.test(uDigits)) {
+    return {
+      platformPostId: mid,
+      publishedUrl: `https://weibo.com/${uDigits}/${mid}`
+    }
+  }
+  const looksLikeMblog =
+    typeof o.text === 'string' ||
+    o.source != null ||
+    o.created_at != null ||
+    o.mblogid != null ||
+    o.isLongText != null
+  if (
+    mid &&
+    !uDigits &&
+    looksLikeMblog &&
+    fallbackWeiboUid.replace(/\D/g, '')
+  ) {
+    const uid = fallbackWeiboUid.replace(/\D/g, '')
+    return {
+      platformPostId: mid,
+      publishedUrl: `https://weibo.com/${uid}/${mid}`
+    }
+  }
+  for (const v of Object.values(o)) {
+    const r = deepPluckMblogMetaFromObject(v, fallbackWeiboUid, depth + 1)
+    if (r) return r
+  }
+  return null
+}
+
 /** 接口 JSON 结构多变时的兜底：从原始字符串里抠 idstr/mid（不用 object_id，避免误作时间线 mid） */
 function metaFromRawResponseText (
   raw: string,
   fallbackWeiboUid: string
 ): { platformPostId: string; publishedUrl: string } | null {
   for (const p of [
+    /"idstr"\s*:\s*"([0-9A-Za-z_\-]+)"/,
+    /"mid"\s*:\s*"([0-9A-Za-z_\-]+)"/,
+    /"mblogid"\s*:\s*"([0-9A-Za-z_\-]+)"/i,
+    /"bid"\s*:\s*"([0-9A-Za-z_\-]+)"/i,
     /"idstr"\s*:\s*"?(\d{8,})"?/,
     /"mid"\s*:\s*"?(\d{8,})"?/
   ]) {
     const m = raw.match(p)
-    if (m?.[1] && !isWeiboArticleNumericObjectId(m[1].replace(/\D/g, ''))) {
-      const idstr = m[1].replace(/\D/g, '')
+    if (!m?.[1]) continue
+    const idRaw = m[1]
+    if (/^\d+$/.test(idRaw)) {
+      const idDigits = idRaw.replace(/\D/g, '')
+      if (isWeiboArticleNumericObjectId(idDigits)) continue
+      const idstr = idDigits
       const uid = fallbackWeiboUid.replace(/\D/g, '')
       const publishedUrl = uid
         ? `https://weibo.com/${uid}/${idstr}`
         : `https://weibo.com/detail/${idstr}`
       return { platformPostId: idstr, publishedUrl }
+    }
+    if (/[A-Za-z]/.test(idRaw) && /^[0-9A-Za-z_\-]{4,32}$/.test(idRaw)) {
+      const uid = fallbackWeiboUid.replace(/\D/g, '')
+      const publishedUrl = uid
+        ? `https://weibo.com/${uid}/${idRaw}`
+        : `https://weibo.com/detail/${idRaw}`
+      return { platformPostId: idRaw, publishedUrl }
+    }
+  }
+  return null
+}
+
+/**
+ * 发博接口偶把链接嵌在长 JSON 的其它字段、或 `https:\\/\\/weibo.com\\/…` 转义里，
+ * 不做结构解析时直接扫**整段**报文体，能抠出与 {@link extractPostMeta} 同形的链接。
+ */
+function pluckMblogFromAddResponseLoose (
+  raw: string,
+  fallbackWeiboUid: string
+): { platformPostId: string; publishedUrl: string } | null {
+  const s = raw.replace(/\\\//g, '/')
+  const m = s.match(
+    /https?:\/\/(?:www\.)?weibo\.com\/(\d{5,20})\/([0-9A-Za-z_\-]{4,32})(?=[\s"'}\],#?]|$)/i
+  )
+  if (m?.[1] && m[2]) {
+    return {
+      platformPostId: m[2],
+      publishedUrl: `https://weibo.com/${m[1]}/${m[2]}`
+    }
+  }
+  const uid0 = fallbackWeiboUid.replace(/\D/g, '')
+  if (uid0) {
+    const m2 = s.match(
+      new RegExp(
+        `weibo\\.com\\/${uid0}\\/([0-9A-Za-z_\\-]{4,32})(?=[\\s"'#?},\\]]|$)`,
+        'i'
+      )
+    )
+    if (m2?.[1]) {
+      const seg = m2[1]
+      return {
+        platformPostId: seg,
+        publishedUrl: `https://weibo.com/${uid0}/${seg}`
+      }
     }
   }
   return null
@@ -149,8 +266,9 @@ async function finalizePublishMeta (
   if (!wbUid) {
     return { platformPostId, publishedUrl }
   }
-  await new Promise((r) => setTimeout(r, 700))
-  const recovered = await resolveMblogMetaFromProfileTimeline(
+  /** 图文/长微博接口偶晚于时间线索引，略加长再拉 m 站首页，提高兜底命中率 */
+  await new Promise((r) => setTimeout(r, 1100))
+  let recovered = await resolveMblogMetaFromProfileTimeline(
     userId,
     wbUid,
     bodyText
@@ -158,6 +276,18 @@ async function finalizePublishMeta (
   if (recovered) {
     platformPostId = platformPostId ?? recovered.platformPostId
     publishedUrl = publishedUrl ?? recovered.publishedUrl
+  }
+  if (!platformPostId && !publishedUrl) {
+    await new Promise((r) => setTimeout(r, 1500))
+    recovered = await resolveMblogMetaFromProfileTimeline(
+      userId,
+      wbUid,
+      bodyText
+    )
+    if (recovered) {
+      platformPostId = platformPostId ?? recovered.platformPostId
+      publishedUrl = publishedUrl ?? recovered.publishedUrl
+    }
   }
   return { platformPostId, publishedUrl }
 }
@@ -199,6 +329,7 @@ function parseAjMblogAddResponse (
     const meta =
       extractPostMeta(j, fallbackWeiboUid) ??
       metaFromRawResponseText(t, fallbackWeiboUid) ??
+      pluckMblogFromAddResponseLoose(t, fallbackWeiboUid) ??
       undefined
     return { ok: true, meta }
   } catch {

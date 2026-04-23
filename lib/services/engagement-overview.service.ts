@@ -1,4 +1,4 @@
-﻿import type { ContentPlatform, PlatformAccount, WeiboAppConfig } from '@prisma/client'
+import type { ContentPlatform, PlatformAccount, WeiboAppConfig } from '@prisma/client'
 import { Platform } from '@/types/platform.types'
 import { prisma } from '@/lib/db/prisma'
 
@@ -53,13 +53,9 @@ import {
   findFeedMidByWeiboArticleObjectIdWithRetry,
   isWeiboArticleNumericObjectId
 } from '@/lib/weibo-playwright/weibo-status-cookie'
-import { fetchWechatPublishedArticleInsight } from '@/lib/platforms/wechat/wechat-article-read-stats'
-import { wechatTokenService } from '@/lib/services/wechat-token.service'
-import {
-  fetchWechatMpArticleInsightViaSession,
-  wechatMpArticleSnKey
-} from '@/lib/wechat-playwright/wechat-mp-session-publish-insights'
+import { wechatMpArticleSnKey } from '@/lib/wechat-playwright/wechat-mp-session-publish-insights'
 import { wechatPlaywrightSessionExists } from '@/lib/wechat-playwright/session-files'
+import { fetchWechatArticleEngagementMetrics } from '@/lib/platforms/wechat/wechat-article-engagement'
 
 export interface EngagementTotals {
   views: number
@@ -190,100 +186,26 @@ async function metricsForRow (
   const wechatCfgId =
     row.wechatConfigId ?? row.platformAccount?.wechatAccountConfigId ?? null
   if (platKind === Platform.WECHAT) {
-    const title = row.content?.title?.trim() ?? ''
-    if (!title) {
+    const wx = await fetchWechatArticleEngagementMetrics({
+      userId,
+      wechatConfigId: wechatCfgId,
+      publishedUrl: row.publishedUrl,
+      title: row.content?.title?.trim() ?? '',
+      platformContentId: row.platformContentId
+    })
+    if (wx.ok) {
       return {
-        totals: emptyTotals(),
-        ok: false,
-        warn: '微信发布记录缺少作品标题，无法匹配阅读统计'
+        totals: {
+          views: wx.data.views,
+          comments: wx.data.comments,
+          likes: wx.data.likes,
+          shares: wx.data.shares,
+          collections: wx.data.collections ?? 0
+        },
+        ok: true
       }
     }
-
-    const totalsFromApi = async (): Promise<
-      | { ok: true; data: EngagementTotals }
-      | { ok: false; error: string }
-    > => {
-      if (!wechatCfgId) {
-        return { ok: false, error: '未配置开发者凭证' }
-      }
-      try {
-        const accessToken = await wechatTokenService.getOrRefreshToken(
-          userId,
-          wechatCfgId
-        )
-        const insight = await fetchWechatPublishedArticleInsight(accessToken, {
-          datacubeMsgid: row.wechatDatacubeMsgid,
-          articleTitle: title,
-          publishedAtApprox: row.createdAt
-        })
-        if (!insight.ok) {
-          return { ok: false, error: insight.error }
-        }
-        return {
-          ok: true,
-          data: {
-            views: insight.data.views,
-            comments: insight.data.comments,
-            likes: insight.data.likes,
-            shares: insight.data.shares,
-            collections: insight.data.collections ?? 0
-          }
-        }
-      } catch (e) {
-        return {
-          ok: false,
-          error: e instanceof Error ? e.message : String(e)
-        }
-      }
-    }
-
-    const apiResult = await totalsFromApi()
-    if (apiResult.ok) {
-      return { totals: apiResult.data, ok: true }
-    }
-
-    if (wechatPlaywrightSessionExists(userId)) {
-      const sessionR = await fetchWechatMpArticleInsightViaSession(userId, {
-        publishedUrl: row.publishedUrl,
-        title,
-        datacubeMsgid: row.wechatDatacubeMsgid,
-        publishedAt: row.content?.publishedAt ?? row.createdAt
-      })
-      if (sessionR.ok) {
-        return {
-          totals: {
-            views: sessionR.data.views,
-            comments: sessionR.data.comments,
-            likes: sessionR.data.likes,
-            shares: sessionR.data.shares,
-            collections: sessionR.data.collections ?? 0
-          },
-          ok: true
-        }
-      }
-      if (!wechatCfgId) {
-        return {
-          totals: emptyTotals(),
-          ok: false,
-          warn: `微信（发表记录）${sessionR.error}`
-        }
-      }
-      return {
-        totals: emptyTotals(),
-        ok: false,
-        warn: `微信《${title.slice(0, 18)}${title.length > 18 ? '…' : ''}》官方接口：${apiResult.error}；发表记录：${sessionR.error}`
-      }
-    }
-
-    if (wechatCfgId) {
-      return {
-        totals: emptyTotals(),
-        ok: false,
-        warn: `微信《${title.slice(0, 18)}${title.length > 18 ? '…' : ''}》${apiResult.error}`
-      }
-    }
-
-    return { totals: emptyTotals(), ok: true }
+    return { totals: emptyTotals(), ok: false, warn: wx.warn }
   }
 
   const acc = row.platformAccount

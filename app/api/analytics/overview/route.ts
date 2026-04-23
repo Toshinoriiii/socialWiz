@@ -10,7 +10,7 @@ export const runtime = 'nodejs'
 
 /**
  * GET /api/analytics/overview?days=7
- * 汇总当前用户已成功发布微博/知乎帖的互动（微信公众号暂未计入），并写入当日快照供趋势图使用。
+ * 汇总当前用户已成功发布内容在微信、微博、知乎的互动（微信需已绑定会话或开发者配置；未配置时见 wechatExcluded），并写入当日快照供趋势图使用。
  */
 export async function GET (request: NextRequest) {
   try {

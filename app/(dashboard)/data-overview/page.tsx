@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
@@ -222,7 +222,7 @@ export default function DataOverviewPage () {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-black">互动数据</h1>
           <p className="text-gray-600 mt-1">
-            汇总已成功发布内容在微博、知乎的互动表现（当日刷新会更新趋势快照）
+            汇总已成功发布内容在微信、微博、知乎的互动表现
           </p>
           {postsMeta && (
             <p className="text-xs text-gray-500 mt-2">

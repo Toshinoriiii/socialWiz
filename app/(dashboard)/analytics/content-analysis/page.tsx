@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -223,19 +223,16 @@ export default function ContentAnalysisPage () {
               内容分析
             </h1>
             <p className="max-w-2xl text-sm text-muted-foreground md:text-base">
-              按发布记录查看各平台阅读、点赞、评论、收藏与转发；数据与数据概览同源实时拉取。
+              本页<strong className="text-foreground">仅</strong>针对
+              <strong className="font-medium text-foreground">文章</strong>类型作品，汇总
+              <strong className="font-medium text-foreground">微信（公众号）、微博、知乎</strong>等平台的阅读、点赞、评论、收藏与转发（与数据概览同源；微信为绑定公众平台会话后从发表记录拉数）。图文、纯图等非文章类不在本功能统计范围内（是否出现在列表、数值是否准均不保证）。
             </p>
             <Alert className="mt-3 max-w-2xl border-sky-200/80 bg-sky-50/90 dark:border-sky-900/45 dark:bg-sky-950/35">
               <Info className="size-4 text-sky-700 dark:text-sky-400" />
-              <AlertDescription className="space-y-2 text-sm text-sky-950 dark:text-sky-100/90">
-                <p>
-                  <span className="font-medium text-foreground">微博图文</span>
-                  ：本页暂不支持图文作品的统计分析（阅读等指标可能无法展示或不准确）。
-                </p>
-                <p>
-                  <span className="font-medium text-foreground">微信</span>
-                  ：公众号等内容的数据分析能力开发中，当前列表中的微信行仅供参考。
-                </p>
+              <AlertDescription className="text-sm text-sky-950 dark:text-sky-100/90">
+                说明：微信、微博、知乎在本页
+                <span className="font-medium">均按「文章类」</span>拉取/展示指标；
+                非文章类请忽略本页或改用文章类作品。若某条未出数，多为未绑定平台会话/凭证或该条无公开统计。
               </AlertDescription>
             </Alert>
             {refreshedAt && (
@@ -274,7 +271,7 @@ export default function ContentAnalysisPage () {
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">发布内容明细</CardTitle>
             <CardDescription>
-              仅展示已成功发布至微信、微博、知乎的记录
+              文章类、已成功发布至微信、微博、知乎等平台的记录（非文章类不保证出现在本表或指标准确）
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">

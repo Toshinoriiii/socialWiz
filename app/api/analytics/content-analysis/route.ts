@@ -7,7 +7,7 @@ export const maxDuration = 120
 
 /**
  * GET /api/analytics/content-analysis
- * 每条成功发布一条明细（微信/微博/知乎），互动数与数据概览同源实时拉取。
+ * 每条成功发布一条明细（微信公众号、微博、知乎等），互动数与数据概览同源拉取；微信依赖会话或开放平台配置。
  */
 export async function GET (request: NextRequest) {
   try {

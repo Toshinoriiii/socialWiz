@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { verify } from 'jsonwebtoken'
 import { prisma } from '@/lib/db/prisma'
 import { Platform } from '@/types/platform.types'
@@ -6,6 +6,8 @@ import { fetchWeiboPostInsightsForAccount } from '@/lib/platforms/weibo/weibo-po
 import { effectivePublishContentTypeFromRecord } from '@/lib/utils/content-publish-type'
 import { NonOfficialPublishService } from '@/lib/services/non-official-publish.service'
 import { PublishJobStatus } from '@prisma/client'
+import { fetchWechatArticleEngagementMetrics } from '@/lib/platforms/wechat/wechat-article-engagement'
+import type { PublishJobPayload } from '@/types/publish-job'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
 
@@ -23,7 +25,7 @@ function getUserIdFromRequest (request: NextRequest): string | null {
 
 /**
  * GET /api/platforms/publish/jobs/[jobId]/insights
- * 成功发布的微博任务：用 job.platformPostId 拉取转发/评论/赞等（会话 Cookie 或 OAuth）。
+ * 成功发布任务：微博用 platformPostId 拉时间线/图文互动；微信用标题+已发布链从后台「发表记录」拉单篇数据。
  */
 export async function GET (
   request: NextRequest,
@@ -49,14 +51,6 @@ export async function GET (
       { status: 400 }
     )
   }
-  const postId = job.platformPostId?.trim()
-  if (!postId) {
-    return NextResponse.json(
-      { error: '该任务未记录 platformPostId，无法查询' },
-      { status: 400 }
-    )
-  }
-
   const account = await prisma.platformAccount.findUnique({
     where: { id: job.platformAccountId },
     include: { weiboAppConfig: true }
@@ -65,9 +59,63 @@ export async function GET (
     return NextResponse.json({ error: '平台账号不存在' }, { status: 404 })
   }
 
+  if (account.platform === Platform.WECHAT) {
+    const payload = (job.payload ?? {}) as Partial<PublishJobPayload>
+    let title = (payload.title ?? '').trim()
+    let wechatCfgId: string | null = account.wechatAccountConfigId
+    if (job.contentId) {
+      const content = await prisma.content.findFirst({
+        where: { id: job.contentId, userId },
+        select: { title: true }
+      })
+      if (content?.title?.trim()) title = content.title.trim()
+      const cp = await prisma.contentPlatform.findFirst({
+        where: { contentId: job.contentId, platformAccountId: job.platformAccountId }
+      })
+      if (cp?.wechatConfigId) {
+        wechatCfgId = cp.wechatConfigId
+      }
+    }
+    if (!title) {
+      return NextResponse.json(
+        { error: '无法解析任务标题，请保证任务关联了含标题的内容' },
+        { status: 400 }
+      )
+    }
+    const w = await fetchWechatArticleEngagementMetrics({
+      userId,
+      wechatConfigId: wechatCfgId,
+      publishedUrl: job.publishedUrl,
+      title,
+      platformContentId: job.platformPostId
+    })
+    if (!w.ok) {
+      return NextResponse.json(
+        { error: w.warn || '拉取微信阅读数据失败' },
+        { status: 400 }
+      )
+    }
+    return NextResponse.json({
+      ok: true,
+      jobId: job.id,
+      platform: 'WECHAT',
+      publishedUrl: job.publishedUrl,
+      platformPostId: job.platformPostId,
+      data: w.data
+    })
+  }
+
+  const postId = job.platformPostId?.trim()
+  if (!postId) {
+    return NextResponse.json(
+      { error: '该任务未记录 platformPostId，无法查询' },
+      { status: 400 }
+    )
+  }
+
   if (account.platform !== Platform.WEIBO) {
     return NextResponse.json(
-      { error: '当前仅支持微博任务的帖文洞察' },
+      { error: '当前仅支持微博、微信公众号任务的发布洞察' },
       { status: 400 }
     )
   }

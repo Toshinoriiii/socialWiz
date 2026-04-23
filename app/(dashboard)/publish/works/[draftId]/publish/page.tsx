@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 /**
  * 作品发布流程页面
@@ -35,6 +35,7 @@ import {
   RefreshCw,
   Search,
   History as HistoryIcon,
+  ExternalLink,
 } from 'lucide-react'
 import { PlatformBrandLogo } from '@/components/dashboard/PlatformBrandLogo'
 import {
@@ -123,7 +124,14 @@ async function pollPublishJob(
   token: string,
   jobId: string,
   options?: { maxAttempts?: number; intervalMs?: number }
-): Promise<{ ok: boolean; status: string; errorMessage?: string | null }> {
+): Promise<{
+  ok: boolean
+  status: string
+  errorMessage?: string | null
+  /** 与 GET /api/platforms/publish/jobs/[id] 一致，成功时可能已有微博/公众号等可打开链接 */
+  publishedUrl?: string | null
+  hint?: string
+}> {
   const maxAttempts = options?.maxAttempts ?? 30
   const intervalMs = options?.intervalMs ?? 1000
   for (let i = 0; i < maxAttempts; i++) {
@@ -139,6 +147,8 @@ async function pollPublishJob(
         ok: data.status === 'SUCCESS',
         status: data.status,
         errorMessage: data.errorMessage,
+        publishedUrl: data.publishedUrl ?? null,
+        hint: typeof data.hint === 'string' ? data.hint : undefined
       }
     }
     await new Promise((r) => setTimeout(r, intervalMs))
@@ -168,7 +178,14 @@ export default function PublishFlowPage() {
   const [configs, setConfigs] = useState<PlatformPublishConfig[]>([])
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set())
   const [accountConfigMap, setAccountConfigMap] = useState<Record<string, string>>({})
-  const [publishResults, setPublishResults] = useState<Array<{ accountId: string; success: boolean; message?: string }>>([])
+  const [publishResults, setPublishResults] = useState<
+    Array<{
+      accountId: string
+      success: boolean
+      message?: string
+      publishedUrl?: string | null
+    }>
+  >([])
   const [searchQuery, setSearchQuery] = useState('')
   const [platformFilter, setPlatformFilter] = useState<string>('all')
   const [loading, setLoading] = useState(true)
@@ -358,7 +375,12 @@ export default function PublishFlowPage() {
 
     const batchAccounts = orderAccountsForBatchPublish(selectedAccounts)
 
-    type PublishResultRow = { accountId: string; success: boolean; message?: string }
+    type PublishResultRow = {
+      accountId: string
+      success: boolean
+      message?: string
+      publishedUrl?: string | null
+    }
 
     const publishOneAccount = async (
       acc: (typeof batchAccounts)[number]
@@ -410,12 +432,14 @@ export default function PublishFlowPage() {
                 message: polled.ok
                   ? (data.message || '微信公众号群发请求已执行，请到公众平台确认')
                   : (polled.errorMessage || data.details || data.error || '发布失败'),
+                publishedUrl: polled.publishedUrl
               }
             }
             return {
               accountId: acc.id,
               success: res.ok && data.success,
               message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+              publishedUrl: (data as { publishedUrl?: string }).publishedUrl
             }
           }
 
@@ -455,14 +479,20 @@ export default function PublishFlowPage() {
                 accountId: acc.id,
                 success: polled.ok,
                 message: polled.ok
-                  ? (data.message || '微博已在后台尝试发博，请到微博查看是否成功')
+                  ? (polled.publishedUrl
+                      ? '已发布，可在下方打开链接'
+                      : polled.hint ||
+                        data.message ||
+                        '微博已尝试发博；若未显示链接，请到微博首页时间线或发布记录确认')
                   : (polled.errorMessage || data.details || data.error || '发布失败'),
+                publishedUrl: polled.publishedUrl
               }
             }
             return {
               accountId: acc.id,
               success: res.ok && data.success,
               message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+              publishedUrl: (data as { publishedUrl?: string }).publishedUrl
             }
           }
 
@@ -501,14 +531,18 @@ export default function PublishFlowPage() {
                 accountId: acc.id,
                 success: polled.ok,
                 message: polled.ok
-                  ? (data.message || '知乎文章已发布')
+                  ? (polled.publishedUrl
+                      ? '已发布，可在下方打开链接'
+                      : data.message || '知乎文章已发布')
                   : (polled.errorMessage || data.details || data.error || '发布失败'),
+                publishedUrl: polled.publishedUrl
               }
             }
             return {
               accountId: acc.id,
               success: res.ok && data.success,
               message: data.details || data.error || (res.ok ? '成功' : '发布失败'),
+              publishedUrl: (data as { publishedUrl?: string }).publishedUrl
             }
           }
 
@@ -1013,17 +1047,28 @@ export default function PublishFlowPage() {
                       )}
                     </div>
                     <AccountPlatformLogo platformKey={acc.platform} />
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="font-medium text-foreground">{acc.platformUsername}</div>
                       <div className="text-sm text-muted-foreground">{info.name}</div>
+                      {success && result?.publishedUrl ? (
+                        <a
+                          href={result.publishedUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1.5 inline-flex max-w-full items-center gap-1 break-all text-sm text-primary hover:underline"
+                        >
+                          <ExternalLink className="size-3.5 shrink-0" />
+                          打开发布页
+                        </a>
+                      ) : null}
                     </div>
                     <span
                       className={cn(
-                        'text-sm shrink-0',
+                        'max-w-[min(14rem,40%)] shrink-0 text-right text-sm',
                         success ? 'text-muted-foreground' : 'text-destructive'
                       )}
                     >
-                      {success ? '已发布成功' : result?.message || '发布失败'}
+                      {success ? result?.message || '已发布成功' : result?.message || '发布失败'}
                     </span>
                   </div>
                 )
